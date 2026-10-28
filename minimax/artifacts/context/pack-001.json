@@ -1,7 +1,7 @@
 {
   "schema": "sddctx.context-pack.v1",
   "task": "为发票总价增加促销码折扣能力，先折扣后计税",
-  "scope_id": "scp_2fervhjt293vd3eym9mdjn5q18",
+  "scope_id": "scp_6d4rq92ngwcnzytn87ebhqyqr3",
   "corpus_size": 47,
   "files_to_modify": [
     "src/billing/pricing.py"

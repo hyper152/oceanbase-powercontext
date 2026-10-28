@@ -1,0 +1,7 @@
+$ D:\.hyper\project\OceanBase\PowerContext-minimax\minimax\.venv\Scripts\python.exe -m sddctx apply --response D:\.hyper\project\OceanBase\PowerContext-minimax\minimax\artifacts\minimax\response.json --project D:\.hyper\project\OceanBase\PowerContext-minimax\minimax\sample --diff D:\.hyper\project\OceanBase\PowerContext-minimax\minimax\artifacts\minimax\code.diff
+
+--- stdout ---
+applied 1 file(s)
+
+--- stderr ---
+

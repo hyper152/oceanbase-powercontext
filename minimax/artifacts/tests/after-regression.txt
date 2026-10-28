@@ -13,7 +13,7 @@ tests\test_invoice.py ...                                                [ 15%]
 tests\test_money.py ........                                             [ 55%]
 tests\test_pricing.py .........                                          [100%]
 
-====================== 20 passed, 6 deselected in 0.04s =======================
+====================== 20 passed, 6 deselected in 0.07s =======================
 
 --- stderr ---
 

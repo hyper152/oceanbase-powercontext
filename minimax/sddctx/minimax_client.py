@@ -17,10 +17,10 @@ from typing import Any
 import httpx
 
 __all__ = [
+    "MiniMaxClient",
     "MiniMaxConfig",
     "MiniMaxError",
     "MiniMaxResponse",
-    "MiniMaxClient",
     "resolve_api_key",
 ]
 
@@ -65,7 +65,7 @@ class MiniMaxConfig:
     api_style: str = "openai"
 
     @classmethod
-    def from_env(cls, *, model: str | None = None, base_url: str | None = None) -> "MiniMaxConfig":
+    def from_env(cls, *, model: str | None = None, base_url: str | None = None) -> MiniMaxConfig:
         key = resolve_api_key()
         return cls(
             api_key=key,

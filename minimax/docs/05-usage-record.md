@@ -7,8 +7,9 @@
 
 | 技术 | 版本 | 在本方案中的用途 | 验证证据 |
 | --- | --- | --- | --- |
-| **PowerContext** | 1.4.1.dev180+gcd1b5e3f5（仓库 `src/powercontext`） | 上下文存储与检索底座：Content Sources 存语料，Atomic Memory 存进度与验证结果；提供 HTTP API 与官方 Python SDK | `artifacts/ingest-report.json`、`artifacts/context/pack-001.json` |
+| **PowerContext** | 1.4.1（PyPI）/ 1.4.1.dev181+gee6f45acb（仓库 `src/powercontext`） | 上下文存储与检索底座：Content Sources 存语料，Atomic Memory 存进度与验证结果；提供 HTTP API 与官方 Python SDK | `artifacts/ingest-report.json`、`artifacts/context/pack-001.json` |
 | **OceanBase seekdb** | 1.4.0（`VERSION()` = `5.7.25-OceanBase seekdb-v1.4.0.0`） | PowerContext 的持久化数据库，语料与进度真实落库 | `pc_sources` / `pc_atomic_memory_current` 的 SQL 直查结果 |
+| **pylibseekdb** | 1.4.0.post2 | 嵌入式 seekdb 绑定：由 PowerContext Server 进程内拉起 seekdb，实现免 Docker 的存储模式；也用于验证脚本的 SQL 直查 | `artifacts/restart/restart-proof.json` 的 `sql-check-*` 步骤 |
 | **SQLAlchemy + pyobvector** | 2.1.6 / 0.2.29 | OceanBase 官方异步方言 `mysql+aoceanbase`，由 PowerContext 自身使用 | PowerContext Server 启动日志与 `pc_sources` 表 |
 | **FastAPI + Uvicorn** | 0.162.0 / 0.54.0 | PowerContext Server 的 HTTP 承载 | `curl /v1/server-info` 返回 `package_version` |
 | **Pydantic** | 2.14.1 | PowerContext 的请求 / 响应模型 | `artifacts/minimax/response.json` 的结构化错误载荷 |
@@ -23,19 +24,29 @@
 | `sddctx/retrieval.py` | 任务驱动检索 | 拉丁词 + CJK 二元组；IDF 加权覆盖率；`applies_to` 推导变更面 |
 | `sddctx/render.py` | 提示词与报告渲染 | 每条结果携带 `source_id` / `db_position` / `sha256` / `server_content_digest` |
 | `sddctx/minimax_client.py` | MiniMax 客户端 | OpenAI / Anthropic 两种风格；密钥不落盘；丢弃 `reasoning_content` |
-| `sddctx/cli.py` | 命令行入口 | `ingest` / `query` / `prompt` / `state` / `minimax` / `apply` |
-| `scripts/run_e2e.py` | 端到端验证 | 逐步记录命令与退出码；失败不中断，真实记录 |
-| `scripts/prove_restart_persistence.py` | 重启持久化验证 | 自起服务 → 空状态 → 写入 → 重启 → 读回 → 复用 |
-| `scripts/prove_spec_revision.py` | 规格修订验证 | 改规格 → 重导入 → 对比上下文 → 还原仓库 |
+| `sddctx/model_answer.py` | 模型回答的出处封装 | 用 `answer_sha256` / `prompt_sha256` / `context_pack_sha256` 把「上下文 → 提示词 → 回答」绑成可复算的链 |
+| `sddctx/sqlprobe.py` | 直查 seekdb | 容器模式与嵌入式模式共用同一套 SQL 与同一套返回结构；嵌入式连接默认不开自动提交，写操作统一显式 `COMMIT` |
+| `sddctx/cli.py` | 命令行入口 | `ingest` / `query` / `prompt` / `state` / `minimax` / `apply` / `record-answer` |
+| `scripts/server_runtime.py` | 验证脚本共用的服务运行时 | 按存储模式派生服务环境、启停 PowerContext Server、读取实例标识；四个脚本共用同一份实现 |
+| `scripts/run_e2e.py` | 端到端验证 | 自行启停服务；逐步记录命令与退出码；失败不中断，真实记录 |
+| `scripts/prove_restart_persistence.py` | 重启持久化验证 | 自起服务与独立数据目录 → 空状态 → 写入 → 冷重启 → 读回 → 复用 |
+| `scripts/prove_spec_revision.py` | 规格修订验证 | 自起服务 → 改规格 → 重导入 → 对比上下文 → 还原仓库 |
 | `scripts/reset.py` | 重置工具 | 作用域 / 产物 / 工作区 / 数据库四类重置 |
 
 ## 3. 模型服务
 
 | 技术 | 版本 / 端点 | 用途 | 状态 |
 | --- | --- | --- | --- |
-| **MiniMax-M3** | `https://api.minimaxi.com/v1`（国内站） | 依据检索到的上下文生成改动代码 | **未完成**：HTTP 402 / 业务码 1008 `insufficient balance` |
-| MiniMax-M3.1-Flash | 同上 | 备选模型 | 同上（同样受余额限制） |
+| **MiniMax-M3.1-Flash** | 会话内运行的 MiniMax 模型 | **本轮实际产出改动代码的模型**：依据检索到的上下文生成 `src/billing/pricing.py` | **已完成**：原始回答入库（`model/SPEC-BILL-001-pricing.session-model.txt`），摘要链见 `artifacts/minimax/response.json` |
+| **MiniMax-M3** | `https://api.minimaxi.com/v1`（国内站） | 通过 HTTP API 生成改动代码 | **未完成**：HTTP 402 / 业务码 1008 `insufficient balance`（证据 `artifacts/minimax/api-attempt.json`） |
+| MiniMax-M3.1-Flash | 同上（HTTP） | 同一模型的 HTTP 通道 | 同上（同样受余额限制） |
 | Anthropic 兼容端点 | `<base>/anthropic/v1/messages` | 备选调用风格 | 已实现，未在本轮使用 |
+
+**两条路径的关系**：两者使用**完全相同的提示词**（同一份由 seekdb 检索结果渲染的
+上下文包），也使用**完全相同的应用代码**（`sddctx apply`）。
+差别只在回答从哪里来：HTTP 通道返回的模型，或会话内运行的同一个 MiniMax 模型。
+本轮 HTTP 通道返回 402，因此实际采用的是后者；这一事实被如实记录，
+不会与 HTTP 通道的产出混淆。
 
 ## 4. 工程工具
 
@@ -43,8 +54,9 @@
 | --- | --- | --- |
 | uv | 0.12.15 | 创建虚拟环境、安装依赖（可编辑模式） |
 | pytest | 9.2.0 | 样例项目测试（26 个用例） |
-| Docker | Desktop / Engine | 运行 seekdb 1.4.0 容器 |
-| MySQL 客户端 | 容器内 `mysql` | 直接查询 `pc_*` 表做证据核对 |
+| Docker | Desktop / Engine | 运行 seekdb 1.4.0 容器（容器模式） |
+| MySQL 客户端 | 容器内 `mysql` | 直接查询 `pc_*` 表做证据核对（容器模式） |
+| pylibseekdb | 1.4.0.post2 | 直接查询 `pc_*` 表做证据核对（嵌入式模式，免 Docker） |
 
 ## 5. 样例项目
 
@@ -72,10 +84,15 @@
 ```
 python            3.12.14
 uv                0.12.15
-powercontext      1.4.1.dev180+gcd1b5e3f5   (editable, from ./src/powercontext)
+powercontext      1.4.1                       (PyPI) 或 1.4.1.dev181+gee6f45acb (editable)
+sddctx            0.1.0                       (editable, from ./minimax)
 sqlalchemy        2.1.6
 pyobvector         0.2.29
+pylibseekdb       1.4.0.post2
 httpx              0.28.1
 pytest             9.2.0
 oceanbase/seekdb   1.4.0-100000172026082615
 ```
+
+本轮产物的运行时组合：Python 3.12.14 + PowerContext 1.4.1.dev181+gee6f45acb
+（仓库源码）+ 嵌入式 seekdb 1.4.0（`VERSION()` = `5.7.25-OceanBase seekdb-v1.4.0.0`）。

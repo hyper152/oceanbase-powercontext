@@ -34,12 +34,23 @@ sys.path.insert(0, str(MINIMAX_DIR))
 from sddctx.parsing import scan_project  # noqa: E402
 from sddctx.render import render_report  # noqa: E402
 from sddctx.retrieval import build_context_pack  # noqa: E402
+from sddctx.sqlprobe import STORAGE_DOCKER, STORAGE_EMBEDDED, run_sql  # noqa: E402
 from sddctx.store import PowerContextStore, build_client  # noqa: E402
+from server_runtime import (  # noqa: E402
+    ServerHandle,
+    build_server_env,
+    parse_env_file,
+    port_is_free,
+    write_env_file,
+)
 
+RUNTIME_DIR = MINIMAX_DIR / ".runtime"
 ARTIFACT_DIR = MINIMAX_DIR / "artifacts" / "spec-revision"
 SAMPLE_DIR = MINIMAX_DIR / "sample"
 SPEC_PATH = SAMPLE_DIR / "specs" / "SPEC-BILL-001-invoice-promo-discount.md"
 TASK = "实现发票促销码折扣并保持金额不变量"
+DEFAULT_PORT = 8012
+DEFAULT_SEEKDB_DIR = RUNTIME_DIR / "seekdb-spec-revision"
 
 # The edit that a product owner would make after the first review round:
 # a third promotion code and a raised discount cap for SAVE20.
@@ -71,33 +82,12 @@ def _apply_edit(original: str) -> str:
     return edited
 
 
-def _sql(query: str) -> str:
-    import subprocess
-
-    try:
-        completed = subprocess.run(
-            [
-                "docker",
-                "exec",
-                "oceanbase-seekdb",
-                "mysql",
-                "-h127.0.0.1",
-                "-P2881",
-                "-uroot",
-                "-N",
-                "-e",
-                query,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return f"<unavailable: {error}>"
-    return (completed.stdout or completed.stderr).strip()
+def _sql(query: str, *, storage: str, seekdb_dir: Path) -> str:
+    """Run a read-only query against the store that backs PowerContext."""
+    result = run_sql(query, mode=storage, seekdb_dir=seekdb_dir)
+    if result.ok:
+        return result.text
+    return f"<unavailable: {result.error}>"
 
 
 async def _pack(store: PowerContextStore, task: str):
@@ -108,11 +98,50 @@ async def _pack(store: PowerContextStore, task: str):
 
 async def main_async(args: argparse.Namespace) -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+    server: ServerHandle | None = None
+    server_url = args.server_url
+    if not server_url:
+        # The script owns the server: the storage mode decides the whole
+        # configuration, so no hand-written environment file is needed.
+        if not port_is_free(args.port):
+            print(f"port {args.port} is already in use", file=sys.stderr)
+            return 1
+        base_env: dict[str, str] = {}
+        if args.env_file:
+            base_env = parse_env_file(Path(args.env_file).expanduser().resolve())
+        env = build_server_env(
+            storage=args.storage,
+            seekdb_dir=Path(args.seekdb_dir).expanduser().resolve(),
+            port=args.port,
+            home=RUNTIME_DIR / "home-spec-revision",
+            base_env=base_env,
+        )
+        env_file = write_env_file(env, RUNTIME_DIR / "server-spec-revision.env")
+        log_path = RUNTIME_DIR / "server-spec-revision.log"
+        if log_path.exists():
+            log_path.unlink()
+        server = ServerHandle(env_file, args.port, log_path)
+        server.start()
+        server.wait_ready()
+        server_url = f"http://127.0.0.1:{args.port}"
+
+    try:
+        return await _run_proof(args, server_url, server)
+    finally:
+        if server is not None:
+            server.stop()
+
+
+async def _run_proof(
+    args: argparse.Namespace, server_url: str, server: ServerHandle | None
+) -> int:
+    """Run the proof against the server reachable at ``server_url``."""
     original_bytes = SPEC_PATH.read_bytes()
     original_text = original_bytes.decode("utf-8")
     original_sha = _sha256(original_bytes)
 
-    client = build_client(args.server_url)
+    client = build_client(server_url)
     default_scope = await client.get_default_scope()
     title = f"minimax-sdd-spec-revision-{int(time.time())}"
     scope_id = await PowerContextStore(client, default_scope.scope_id).ensure_scope(
@@ -135,6 +164,10 @@ async def main_async(args: argparse.Namespace) -> int:
 
     # -- before -------------------------------------------------------------
     records = scan_project(SAMPLE_DIR)
+    # The production scope has to hold the pre-edit specification, otherwise
+    # the "the production scope was not touched" check below would be vacuous.
+    production_store = PowerContextStore(client, default_scope.scope_id)
+    await production_store.put_records(records)
     entries = await store.put_records(records)
     pack_before = await _pack(store, TASK)
     report_before = render_report(pack_before)
@@ -227,7 +260,9 @@ async def main_async(args: argparse.Namespace) -> int:
     versions = _sql(
         "SELECT source_id, journal_position FROM powercontext_sdd.pc_sources "
         "WHERE scope_id = '%s' AND source_id LIKE 'sddctx:v1:spec_section:SPEC-BILL-001%%' "
-        "ORDER BY journal_position;" % scope_id
+        "ORDER BY journal_position;" % scope_id,
+        storage=args.storage,
+        seekdb_dir=Path(args.seekdb_dir).expanduser().resolve(),
     )
 
     # -- restore ------------------------------------------------------------
@@ -245,6 +280,9 @@ async def main_async(args: argparse.Namespace) -> int:
     main_pack = await _pack(main_store, TASK)
     main_text = " ".join(item.text for item in main_pack.applicable_specs)
     main_scope_clean = new_text_marker not in main_text
+    # The check is only meaningful when the production scope really holds the
+    # pre-edit specification, so that is asserted as well.
+    production_scope_seeded = OLD_ROW in main_text and "150.00" not in main_text
 
     verdict = {
         "spec_sections_before": len(pack_before.applicable_specs),
@@ -255,6 +293,7 @@ async def main_async(args: argparse.Namespace) -> int:
         "source_ids_changed": bool(changed),
         "repository_restored": restored_sha == original_sha,
         "production_scope_untouched": main_scope_clean,
+        "production_scope_holds_pre_edit_spec": production_scope_seeded,
     }
     verdict["passed"] = all(
         verdict[key]
@@ -264,6 +303,7 @@ async def main_async(args: argparse.Namespace) -> int:
             "source_ids_changed",
             "repository_restored",
             "production_scope_untouched",
+            "production_scope_holds_pre_edit_spec",
         )
     ) and verdict["respecified_sections"] > 0
 
@@ -272,6 +312,9 @@ async def main_async(args: argparse.Namespace) -> int:
         "generated_at": _now(),
         "scope_id": scope_id,
         "task": TASK,
+        "server_url": server_url,
+        "server_managed_by_the_script": server is not None,
+        "storage": args.storage,
         "spec_file": str(SPEC_PATH.relative_to(REPO_ROOT).as_posix()),
         "spec_sha256_before": original_sha,
         "spec_sha256_after_edit": _sha256(edited_bytes),
@@ -294,7 +337,30 @@ async def main_async(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Prove that an edited spec changes the context")
-    parser.add_argument("--server-url", default="http://127.0.0.1:8010")
+    parser.add_argument(
+        "--server-url",
+        default=None,
+        help="Use an already running PowerContext Server. "
+        "When omitted the script starts and stops its own server.",
+    )
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Optional environment file of an existing PowerContext Server. "
+        "In the embedded mode the script derives a complete environment itself.",
+    )
+    parser.add_argument(
+        "--storage",
+        choices=(STORAGE_DOCKER, STORAGE_EMBEDDED),
+        default=STORAGE_EMBEDDED,
+        help="Which store backs PowerContext: a seekdb container or the embedded seekdb.",
+    )
+    parser.add_argument(
+        "--seekdb-dir",
+        default=str(DEFAULT_SEEKDB_DIR),
+        help="Data directory of the embedded seekdb instance.",
+    )
     args = parser.parse_args()
     return asyncio.run(main_async(args))
 

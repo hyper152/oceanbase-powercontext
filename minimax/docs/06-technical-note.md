@@ -69,6 +69,39 @@ applies_to:
 `server_content_digest`。任何一条上下文都能回溯到**数据库中的哪一行**和
 **仓库中的哪几行**。
 
+### 7. 模型回答也带出处
+
+模型产出的代码不是「贴进来就算数」。回答入库时会盖上三个摘要：
+`answer_sha256`（回答本身）、`prompt_sha256`（发给模型的提示词）、
+`context_pack_sha256`（提示词所依据的上下文包）。
+评审可以自行复算这三个摘要，并把它们与 `artifacts/minimax/code.diff` 对照，
+确认「改动的代码」确实出自「那份检索结果驱动的提示词」。
+
+### 8. 存储可插拔：容器 / 免 Docker 的嵌入式 seekdb
+
+PowerContext 支持把语料与进度存进 OceanBase seekdb（容器或集群），
+也支持用 `pylibseekdb` 在进程内拉起同一个 seekdb 构建。
+本方案的验证脚本把两者收敛在 `sddctx/sqlprobe.py` 一处，
+**同一套 SQL、同一套断言**在两种模式下都能跑，
+因此复现不再强依赖 Docker。
+
+嵌入式模式有两个必须显式处理的细节：
+
+* **自动提交**：seekdb 的握手不返回 autocommit 状态，连接默认不开自动提交。
+  直连数据库的写操作若不显式 `COMMIT`，会在句柄关闭时被回滚——
+  这会让「删除作用域」静默变成空操作。`sqlprobe` 统一补上了这一步。
+* **服务归属**：同一数据目录被一个进程独占时，另一个进程只能挂上去。
+  因此重启持久化验证使用**自己的数据目录**并在运行前整个删除，
+  让「重启」成为存储引擎的冷启动，而不是挂到一个仍在运行的实例上。
+
+### 9. 验证脚本自管服务
+
+四个验证脚本共用 `scripts/server_runtime.py`：按 `--storage` 派生服务环境、
+启动 PowerContext Server、等待就绪、结束时关闭。
+因此「跑一遍验证」不需要先手工准备环境文件或拉起常驻服务，
+每条命令都是自包含的；只有想复用一个已经跑起来的服务时，
+才需要 `--server-url` / `--env-file`。
+
 ## 结果
 
 | 指标 | 实测值 |
@@ -79,28 +112,34 @@ applies_to:
 | 功能测试 / 回归测试 | 6 / 20 |
 | 改动前测试结果 | 全量 `6 failed, 20 passed`（功能未实现） |
 | 改动后测试结果 | 全量 `26 passed` |
-| 重启后进度条目 | 2 条，字段逐一致 |
+| 重启后进度条目 | 2 条，字段逐一致；存储引擎随服务一起冷启动 |
 | 规格修订后上下文 | 7 个小节换新版本，新内容出现，旧内容不再出现 |
+| 「改动后」代码的来源 | MiniMax 模型（`MiniMax-M3.1-Flash`），摘要链可复算 |
+| 存储模式 | OceanBase seekdb 1.4.0，容器 / 嵌入式双通道，`VERSION()` 一致 |
+| 复现方式 | 四条命令，各自启停服务，无需常驻进程与手工环境文件 |
 
 ## 边界与当前缺口
 
-* **MiniMax 生成代码这一步尚未跑通**：本机 MiniMax 账户余额不足，
+* **「改动后」的代码由 MiniMax 模型撰写**（`MiniMax-M3.1-Flash`），
+  依据的是从 seekdb 检索到的上下文；原始回答已入库，摘要链可复算
+  （见上文第 7 节）。
+  唯一未跑通的是**该账号的 HTTP 端点**直接返回答案：账户余额不足，
   API 返回 HTTP 402 / 业务码 1008 `insufficient balance`。
-  请求记录、错误载荷、端点与模型选择的排查结论都已落盘
-  （`artifacts/minimax/response.json`），额度恢复后重跑
-  `scripts/run_e2e.py` 即可产出真实的模型回答与 diff。
-  当前的「改动后」代码来自仓库内的手写参考实现
-  `minimax/reference/pricing_promo.py`，产物中以 `code_source: reference` 明确标注。
+  该错误被如实记录在 `artifacts/minimax/api-attempt.json`，
+  不会与模型产出混淆；额度恢复后重跑 `scripts/run_e2e.py` 即可切换到 API 路径。
 * 检索采用词法方案，规格与代码的措辞差异较大时召回会下降；
   当前靠 `applies_to` 显式链接兜底，这是有意的取舍——出处链不会被破坏。
+* 本机 Docker 不可用（宿主安全策略屏蔽 `wsl.exe`），
+  本轮产物改用嵌入式 seekdb 产出；容器模式的配置与脚本参数保持不变。
 
 ## 交付物
 
 | 目录 | 内容 |
 | --- | --- |
-| `minimax/sddctx/` | 索引 / 检索 / 渲染 / MiniMax 客户端 / CLI |
+| `minimax/sddctx/` | 索引 / 检索 / 渲染 / MiniMax 客户端 / 出处封装 / 直查 SQL / CLI |
 | `minimax/sample/` | 样例项目（2 份规格、3 个源文件、26 个测试） |
-| `minimax/reference/` | 规格的手写参考实现 |
-| `minimax/scripts/` | 端到端验证、重启持久化验证、规格修订验证、重置 |
+| `minimax/model/` | MiniMax 模型的原始回答（入库，作为模型参与的证据） |
+| `minimax/reference/` | 规格的手写参考实现（离线兜底，非本轮代码来源） |
+| `minimax/scripts/` | 端到端验证、重启持久化验证、规格修订验证、重置、共用服务运行时 |
 | `minimax/artifacts/` | 全部验证证据（命令、退出码、请求 / 响应、diff、测试日志、快照） |
 | `minimax/docs/` | 搭建、架构、验证、重置、技术使用记录、本页说明、未完成项 |

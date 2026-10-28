@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 import os
 import shutil
@@ -39,18 +40,71 @@ from sddctx.minimax_client import (  # noqa: E402
     MiniMaxConfig,
     MiniMaxError,
 )
+from sddctx.model_answer import ORIGIN_SESSION, load_model_answer  # noqa: E402
 from sddctx.parsing import scan_project  # noqa: E402
 from sddctx.render import SYSTEM_PROMPT, render_prompt, render_report  # noqa: E402
 from sddctx.retrieval import build_context_pack  # noqa: E402
 from sddctx.store import PowerContextStore, build_client  # noqa: E402
+from server_runtime import (  # noqa: E402
+    STORAGE_DOCKER,
+    STORAGE_EMBEDDED,
+    ServerHandle,
+    build_server_env,
+    parse_env_file,
+    port_is_free,
+    write_env_file,
+)
 
 PYTHON = str(ROOT / ".venv" / "Scripts" / "python.exe")
 if not Path(PYTHON).exists():
     PYTHON = sys.executable
+TARGET_FILE = "src/billing/pricing.py"
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def code_version(project: Path) -> dict[str, str]:
+    """Identify the exact code a test run was executed against.
+
+    The file digest pins the source that produced the result, the commit and
+    the dirty flag tell the reviewer whether the run happened on a clean
+    checkout of the committed baseline.
+    """
+    target = project / TARGET_FILE
+    digest = ""
+    if target.exists():
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    commit = ""
+    dirty = ""
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        commit = completed.stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--", str(target)],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        dirty = "true" if status.stdout.strip() else "false"
+    except (OSError, subprocess.SubprocessError):
+        commit = ""
+    return {
+        "target_file": TARGET_FILE,
+        "file_sha256": digest,
+        "git_commit": commit,
+        "git_dirty": dirty,
+    }
 
 
 class Recorder:
@@ -89,6 +143,7 @@ def run_command(
     cwd: Path,
     log_path: Path,
     env: dict[str, str] | None = None,
+    version: dict[str, str] | None = None,
 ) -> int:
     """Run one command, capture its output and record the exit code."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,12 +155,13 @@ def run_command(
         f"$ {' '.join(command)}\n\n--- stdout ---\n{completed.stdout}\n--- stderr ---\n{completed.stderr}\n",
         encoding="utf-8",
     )
-    recorder.add(
-        name,
-        " ".join(command),
-        completed.returncode,
-        f"log={log_path.relative_to(ROOT).as_posix()} duration={elapsed:.2f}s",
-    )
+    detail = f"log={log_path.relative_to(ROOT).as_posix()} duration={elapsed:.2f}s"
+    if version is not None:
+        detail = (
+            f"{detail} code_sha256={version['file_sha256'][:16]} "
+            f"git_commit={version['git_commit'][:12]} dirty={version['git_dirty']}"
+        )
+    recorder.add(name, " ".join(command), completed.returncode, detail)
     return completed.returncode
 
 
@@ -134,7 +190,7 @@ def assert_pre_change_state(project: Path) -> None:
         )
 
 
-def restore_pre_change(project: Path, artifacts: Path, recorder: "Recorder") -> None:
+def restore_pre_change(project: Path, artifacts: Path, recorder: Recorder) -> None:
     """Put the pre-change files back into the working tree."""
     before_dir = artifacts / "snapshots" / "before"
     if not before_dir.exists():
@@ -161,7 +217,34 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", default="sample")
     parser.add_argument("--task", default="为发票总价增加促销码折扣能力，先折扣后计税")
-    parser.add_argument("--server-url", default=os.environ.get("SDDCTX_SERVER_URL", "http://127.0.0.1:8010"))
+    parser.add_argument(
+        "--server-url",
+        default=os.environ.get("SDDCTX_SERVER_URL"),
+        help=(
+            "Use an already running PowerContext Server. When omitted the script starts and "
+            "stops its own server, so that the end-to-end run is reproducible on its own."
+        ),
+    )
+    parser.add_argument("--port", type=int, default=8010)
+    parser.add_argument(
+        "--env-file",
+        default=None,
+        help=(
+            "Optional environment file of an existing PowerContext Server. In the embedded mode "
+            "the script derives a complete environment itself."
+        ),
+    )
+    parser.add_argument(
+        "--storage",
+        choices=(STORAGE_DOCKER, STORAGE_EMBEDDED),
+        default=STORAGE_EMBEDDED,
+        help="Which store backs PowerContext: a seekdb container or the embedded seekdb.",
+    )
+    parser.add_argument(
+        "--seekdb-dir",
+        default=str(ROOT / ".runtime" / "seekdb-data"),
+        help="Data directory of the embedded seekdb instance.",
+    )
     parser.add_argument("--scope-title", default="minimax-sdd")
     parser.add_argument("--model", default=os.environ.get("MINIMAX_MODEL", "MiniMax-M3"))
     parser.add_argument("--base-url", default=os.environ.get("MINIMAX_BASE_URL"))
@@ -180,6 +263,20 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--model-answer",
+        default=None,
+        help=(
+            "Raw answer file of the MiniMax model that runs in the agent session. It is used when "
+            "the HTTP endpoint is unreachable, so that the applied code is still produced by a "
+            "MiniMax model and not by the hand written reference solution."
+        ),
+    )
+    parser.add_argument(
+        "--model-id",
+        default="MiniMax-M3.1-Flash",
+        help="Identifier of the session model that produced --model-answer.",
+    )
+    parser.add_argument(
         "--reference-file",
         default="reference/pricing_promo.py",
         help="Reference solution applied to sample/src/billing/pricing.py",
@@ -194,6 +291,49 @@ def main() -> int:
     project = (ROOT / args.project).resolve()
     artifacts = (ROOT / args.artifacts).resolve()
     recorder = Recorder(artifacts / "e2e-steps.json")
+
+    server: ServerHandle | None = None
+    if not args.server_url:
+        server = _start_managed_server(args)
+        args.server_url = f"http://127.0.0.1:{args.port}"
+    try:
+        return _run_e2e(args, project, artifacts, recorder)
+    finally:
+        if server is not None:
+            server.stop()
+
+
+def _start_managed_server(args: argparse.Namespace) -> ServerHandle:
+    """Start a PowerContext Server that matches the requested storage mode."""
+    if not port_is_free(args.port):
+        raise RuntimeError(f"port {args.port} is already in use")
+    base_env: dict[str, str] = {}
+    if args.env_file:
+        base_env = parse_env_file(Path(args.env_file).expanduser().resolve())
+    env = build_server_env(
+        storage=args.storage,
+        seekdb_dir=Path(args.seekdb_dir).expanduser().resolve(),
+        port=args.port,
+        home=ROOT / ".runtime" / "home",
+        base_env=base_env,
+    )
+    env_file = write_env_file(env, ROOT / ".runtime" / "server.env")
+    log_path = ROOT / ".runtime" / "server.log"
+    if log_path.exists():
+        log_path.unlink()
+    server = ServerHandle(env_file, args.port, log_path)
+    server.start()
+    server.wait_ready()
+    return server
+
+
+def _run_e2e(
+    args: argparse.Namespace,
+    project: Path,
+    artifacts: Path,
+    recorder: Recorder,
+) -> int:
+    """Execute the end-to-end flow against ``args.server_url``."""
 
     async def store() -> PowerContextStore:
         client = build_client(args.server_url)
@@ -307,12 +447,18 @@ def main() -> int:
 
     # -- 5. run the tests before the change --------------------------------
     tests_dir = artifacts / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    version_before = code_version(project)
+    (tests_dir / "code-version-before.json").write_text(
+        json.dumps(version_before, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     before_code = run_command(
         recorder,
         "test suite before the change",
         [PYTHON, "-m", "pytest", "-v"],
         cwd=project,
         log_path=tests_dir / "before.txt",
+        version=version_before,
     )
     run_command(
         recorder,
@@ -320,6 +466,7 @@ def main() -> int:
         [PYTHON, "-m", "pytest", "-v", "-k", "regression"],
         cwd=project,
         log_path=tests_dir / "before-regression.txt",
+        version=version_before,
     )
     run_command(
         recorder,
@@ -327,6 +474,7 @@ def main() -> int:
         [PYTHON, "-m", "pytest", "-v", "-k", "promo"],
         cwd=project,
         log_path=tests_dir / "before-functional.txt",
+        version=version_before,
     )
 
     # -- 6. ask MiniMax to implement the change ----------------------------
@@ -378,21 +526,20 @@ def main() -> int:
             recorder.add("MiniMax code generation", "python -m sddctx minimax --task ...", 0, response.model)
             minimax_status = "ok"
         except MiniMaxError as error:
-            (minimax_dir / "response.json").write_text(
-                json.dumps(
-                    {
-                        "generated_at": _now(),
-                        "status": "failed",
-                        "model": args.model,
-                        "base_url": request_log["base_url"],
-                        "error": str(error),
-                        "error_code": error.status_code,
-                        "http_status": error.http_status,
-                        "error_payload": error.payload,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+            api_failure = {
+                "generated_at": _now(),
+                "status": "failed",
+                "model": args.model,
+                "base_url": request_log["base_url"],
+                "error": str(error),
+                "error_code": error.status_code,
+                "http_status": error.http_status,
+                "error_payload": error.payload,
+            }
+            # The failed attempt is kept in its own file so that it is never
+            # confused with the answer that was actually applied.
+            (minimax_dir / "api-attempt.json").write_text(
+                json.dumps(api_failure, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
             recorder.add(
@@ -430,8 +577,46 @@ def main() -> int:
             cwd=ROOT,
             log_path=tests_dir / "apply.txt",
         )
-        applied_from = "minimax"
-    elif args.code_source == "reference" or minimax_status != "ok":
+        applied_from = "minimax-api"
+    elif args.model_answer and args.code_source != "reference":
+        # The HTTP endpoint did not answer, but the MiniMax model that runs in
+        # the agent session did.  Its answer is stamped with the digests of
+        # the prompt and of the context pack and then applied through exactly
+        # the same code path as an API answer.
+        answer = load_model_answer(
+            args.model_answer,
+            model=args.model_id,
+            origin=ORIGIN_SESSION,
+            prompt_path=context_dir / "prompt-001.md",
+            context_pack_path=context_dir / "pack-001.json",
+            api_attempt_path=(
+                minimax_dir / "api-attempt.json" if (minimax_dir / "api-attempt.json").exists() else None
+            ),
+        )
+        (minimax_dir / "response.json").write_text(
+            json.dumps(answer.to_response_json(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        apply_exit = run_command(
+            recorder,
+            "apply the session model answer to the working tree",
+            [
+                PYTHON,
+                "-m",
+                "sddctx",
+                "apply",
+                "--response",
+                str(minimax_dir / "response.json"),
+                "--project",
+                str(project),
+                "--diff",
+                str(minimax_dir / "code.diff"),
+            ],
+            cwd=ROOT,
+            log_path=tests_dir / "apply.txt",
+        )
+        applied_from = "minimax-session-model"
+    else:
         reference = (ROOT / args.reference_file).resolve()
         target = project / "src" / "billing" / "pricing.py"
         original = target.read_text(encoding="utf-8")
@@ -477,12 +662,17 @@ def main() -> int:
 
     if applied_from != "none":
         snapshot(project, artifacts / "snapshots" / "after")
+        version_after = code_version(project)
+        (tests_dir / "code-version-after.json").write_text(
+            json.dumps(version_after, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         after_code = run_command(
             recorder,
             "test suite after the change",
             [PYTHON, "-m", "pytest", "-v"],
             cwd=project,
             log_path=tests_dir / "after.txt",
+            version=version_after,
         )
         run_command(
             recorder,
@@ -490,6 +680,7 @@ def main() -> int:
             [PYTHON, "-m", "pytest", "-v", "-k", "regression"],
             cwd=project,
             log_path=tests_dir / "after-regression.txt",
+            version=version_after,
         )
         run_command(
             recorder,
@@ -497,6 +688,7 @@ def main() -> int:
             [PYTHON, "-m", "pytest", "-v", "-k", "promo"],
             cwd=project,
             log_path=tests_dir / "after-functional.txt",
+            version=version_after,
         )
         (artifacts / "minimax-status.json").write_text(
             json.dumps(
@@ -504,9 +696,12 @@ def main() -> int:
                     "generated_at": _now(),
                     "status": minimax_status,
                     "code_source": applied_from,
+                    "model": args.model_id if applied_from == "minimax-session-model" else args.model,
                     "before_exit_code": before_code,
                     "after_exit_code": after_code,
                     "apply_exit_code": apply_exit,
+                    "code_version_before": version_before,
+                    "code_version_after": version_after,
                 },
                 ensure_ascii=False,
                 indent=2,

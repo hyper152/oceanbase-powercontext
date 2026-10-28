@@ -1,18 +1,31 @@
 {
-  "generated_at": "2026-10-28T13:21:38.074778+00:00",
-  "status": "failed",
-  "model": "MiniMax-M3",
-  "base_url": "https://api.minimaxi.com/v1",
-  "error": "insufficient balance (1008)",
-  "error_code": 1008,
-  "http_status": 402,
-  "error_payload": {
-    "type": "error",
-    "error": {
-      "type": "insufficient_balance_error",
-      "message": "insufficient balance (1008)",
-      "http_code": "402"
-    },
-    "request_id": "073129e3fbd6ef6179d8eeafa4498bc6"
-  }
+  "schema": "sddctx.model-answer.v1",
+  "generated_at": "2026-10-28T15:32:20.075142+00:00",
+  "status": "ok",
+  "model": "MiniMax-M3.1-Flash",
+  "origin": "session",
+  "answer_file": "model\\SPEC-BILL-001-pricing.session-model.txt",
+  "answer_sha256": "d67f92c20af366b16b964981c163622a45b8688250198b45547c66eeb24d3a03",
+  "prompt_sha256": "5e5624cbcf6f14e3ba9780f2355b3b438e8d25bf0123de028fc123ca5ac071c4",
+  "context_pack_sha256": "a504506cb9ceaa4af298be5006bfc85466bff148bd5f9e91c663ff287379021d",
+  "api_attempt": {
+    "generated_at": "2026-10-28T15:32:20.032645+00:00",
+    "status": "failed",
+    "model": "MiniMax-M3",
+    "base_url": "https://api.minimaxi.com/v1",
+    "error": "insufficient balance (1008)",
+    "error_code": 1008,
+    "http_status": 402,
+    "error_payload": {
+      "type": "error",
+      "error": {
+        "type": "insufficient_balance_error",
+        "message": "insufficient balance (1008)",
+        "http_code": "402"
+      },
+      "request_id": "0731488434bb3cc5a578b8e3bb78817a"
+    }
+  },
+  "note": "The API key is never stored and the model's private reasoning trace is discarded. The digests bind this answer to the exact prompt and context pack it was produced from.",
+  "content": "=== FILE: src/billing/pricing.py ===\n\"\"\"Line pricing and invoice totals for the billing sample.\n\nThis module implements the SDD change tracked by ``SPEC-BILL-001``: the\ninvoice total supports a promotion code.  The behaviour that already existed\n(subtotal computation, tax application and rounding) is preserved exactly;\nsee ``SPEC-BILL-002`` for those invariants.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom datetime import date\nfrom decimal import Decimal, ROUND_HALF_UP\nfrom types import MappingProxyType\nfrom typing import Mapping\n\nfrom .money import Money, MoneyError\n\n__all__ = [\n    \"ExpiredPromoError\",\n    \"InvoiceTotals\",\n    \"LineItem\",\n    \"PROMO_CATALOG\",\n    \"PricingError\",\n    \"Promo\",\n    \"UnknownPromoError\",\n    \"compute_invoice_totals\",\n    \"compute_subtotal\",\n]\n\n\nclass PricingError(ValueError):\n    \"\"\"Base class for pricing rule violations.\"\"\"\n\n\nclass UnknownPromoError(PricingError):\n    \"\"\"Raised when a promotion code is not part of the catalog.\"\"\"\n\n\nclass ExpiredPromoError(PricingError):\n    \"\"\"Raised when a promotion code is no longer valid.\"\"\"\n\n\n@dataclass(frozen=True)\nclass LineItem:\n    \"\"\"One priced order line.\"\"\"\n\n    sku: str\n    quantity: int\n    unit_price: Money\n\n    def __post_init__(self) -> None:\n        if not self.sku:\n            raise PricingError(\"line item requires a sku\")\n        if not isinstance(self.quantity, int) or isinstance(self.quantity, bool):\n            raise PricingError(\"line item quantity must be an integer\")\n        if self.quantity <= 0:\n            raise PricingError(\"line item quantity must be positive\")\n        if not isinstance(self.unit_price, Money):\n            raise PricingError(\"line item unit price must be a Money instance\")\n\n\n@dataclass(frozen=True)\nclass InvoiceTotals:\n    \"\"\"The four monetary totals reported on an invoice.\"\"\"\n\n    subtotal: Money\n    discount: Money\n    tax: Money\n    total: Money\n\n\n@dataclass(frozen=True)\nclass Promo:\n    \"\"\"One entry of the promotion code catalog.\"\"\"\n\n    percent_off: Decimal\n    max_discount: Money\n    expires_on: date | None = None\n\n    def is_expired(self, today: date) -> bool:\n        \"\"\"Return whether the promotion stopped being valid before ``today``.\"\"\"\n        return self.expires_on is not None and self.expires_on < today\n\n\nPROMO_CATALOG: Mapping[str, Promo] = MappingProxyType(\n    {\n        \"SAVE10\": Promo(percent_off=Decimal(\"10\"), max_discount=Money.of(\"50.00\")),\n        \"SAVE20\": Promo(percent_off=Decimal(\"20\"), max_discount=Money.of(\"100.00\")),\n        \"OLD15\": Promo(\n            percent_off=Decimal(\"15\"),\n            max_discount=Money.of(\"30.00\"),\n            expires_on=date(2020, 6, 30),\n        ),\n    }\n)\n\n\ndef compute_subtotal(items: tuple[LineItem, ...] | list[LineItem]) -> Money:\n    \"\"\"Return the sum of every line total, before tax and before any discount.\"\"\"\n    subtotal = Money.zero()\n    for item in items:\n        subtotal = subtotal + item.unit_price * item.quantity\n    return subtotal\n\n\ndef _lookup_promo(promo_code: str, *, today: date) -> Promo:\n    \"\"\"Return the catalog entry of ``promo_code`` or raise the matching error.\"\"\"\n    promo = PROMO_CATALOG.get(promo_code)\n    if promo is None:\n        raise UnknownPromoError(f\"unknown promotion code: {promo_code}\")\n    if promo.is_expired(today):\n        raise ExpiredPromoError(f\"promotion code expired: {promo_code}\")\n    return promo\n\n\ndef _compute_discount(subtotal: Money, promo: Promo) -> Money:\n    \"\"\"Return the discount of ``promo`` on ``subtotal``.\n\n    The raw percentage discount is rounded to whole cents with\n    ``ROUND_HALF_UP`` and then capped by the promotion's maximum discount and\n    by the subtotal itself, so the discount is never negative and never\n    exceeds the subtotal.\n    \"\"\"\n    raw = subtotal.scaled(promo.percent_off / Decimal(\"100\"))\n    capped = min(raw.amount, promo.max_discount.amount, subtotal.amount)\n    return Money(max(capped, Decimal(\"0\")))\n\n\ndef compute_invoice_totals(\n    items: tuple[LineItem, ...] | list[LineItem],\n    *,\n    tax_rate: Decimal,\n    promo_code: str | None = None,\n) -> InvoiceTotals:\n    \"\"\"Return the invoice totals for ``items``.\n\n    The tax is applied to the discounted subtotal and rounded to whole cents\n    with ``ROUND_HALF_UP``.  Without a promotion code the behaviour is exactly\n    the one of the pre-change implementation.\n    \"\"\"\n    if not isinstance(tax_rate, Decimal):\n        raise PricingError(\"tax rate must be a Decimal\")\n    if tax_rate < Decimal(\"0\"):\n        raise PricingError(\"tax rate must not be negative\")\n\n    promo = _lookup_promo(promo_code, today=date.today()) if promo_code is not None else None\n\n    subtotal = compute_subtotal(items)\n    discount = _compute_discount(subtotal, promo) if promo is not None else Money.zero()\n\n    taxable = subtotal - discount\n    tax = Money((taxable.amount * tax_rate).quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_UP))\n    return InvoiceTotals(\n        subtotal=subtotal,\n        discount=discount,\n        tax=tax,\n        total=taxable + tax,\n    )\n"
 }

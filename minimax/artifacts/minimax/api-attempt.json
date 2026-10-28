@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-10-28T15:32:20.032645+00:00",
+  "status": "failed",
+  "model": "MiniMax-M3",
+  "base_url": "https://api.minimaxi.com/v1",
+  "error": "insufficient balance (1008)",
+  "error_code": 1008,
+  "http_status": 402,
+  "error_payload": {
+    "type": "error",
+    "error": {
+      "type": "insufficient_balance_error",
+      "message": "insufficient balance (1008)",
+      "http_code": "402"
+    },
+    "request_id": "0731488434bb3cc5a578b8e3bb78817a"
+  }
+}

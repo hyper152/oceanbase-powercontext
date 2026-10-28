@@ -1,20 +1,9 @@
-"""Reference implementation of ``SPEC-BILL-001`` for ``src/billing/pricing.py``.
+"""Line pricing and invoice totals for the billing sample.
 
-This file is **not** part of the sample project.  It is the hand written
-reference solution of the promotion-code specification.  It exists for two
-reasons:
-
-* it proves that ``SPEC-BILL-001`` is implementable and that its acceptance
-  tests are satisfiable, independently of any model availability;
-* it gives the end-to-end script a deterministic "after" state when the
-  MiniMax endpoint cannot be reached, so the before/after test evidence stays
-  reproducible.
-
-When MiniMax is reachable, the end-to-end script uses the model answer
-instead and records which of the two sources produced the applied code.
-
-Copy this file over ``sample/src/billing/pricing.py`` to obtain the "after"
-state of the sample project.
+This module implements the SDD change tracked by ``SPEC-BILL-001``: the
+invoice total supports a promotion code.  The behaviour that already existed
+(subtotal computation, tax application and rounding) is preserved exactly;
+see ``SPEC-BILL-002`` for those invariants.
 """
 
 from __future__ import annotations
@@ -45,11 +34,11 @@ class PricingError(ValueError):
 
 
 class UnknownPromoError(PricingError):
-    """Raised when the promotion code is not part of the catalog."""
+    """Raised when a promotion code is not part of the catalog."""
 
 
 class ExpiredPromoError(PricingError):
-    """Raised when the promotion code is no longer valid."""
+    """Raised when a promotion code is no longer valid."""
 
 
 @dataclass(frozen=True)
@@ -90,6 +79,7 @@ class Promo:
     expires_on: date | None = None
 
     def is_expired(self, today: date) -> bool:
+        """Return whether the promotion stopped being valid before ``today``."""
         return self.expires_on is not None and self.expires_on < today
 
 
@@ -114,13 +104,27 @@ def compute_subtotal(items: tuple[LineItem, ...] | list[LineItem]) -> Money:
     return subtotal
 
 
-def _resolve_promo(promo_code: str) -> Promo:
+def _lookup_promo(promo_code: str, *, today: date) -> Promo:
+    """Return the catalog entry of ``promo_code`` or raise the matching error."""
     promo = PROMO_CATALOG.get(promo_code)
     if promo is None:
         raise UnknownPromoError(f"unknown promotion code: {promo_code}")
-    if promo.is_expired(date.today()):
+    if promo.is_expired(today):
         raise ExpiredPromoError(f"promotion code expired: {promo_code}")
     return promo
+
+
+def _compute_discount(subtotal: Money, promo: Promo) -> Money:
+    """Return the discount of ``promo`` on ``subtotal``.
+
+    The raw percentage discount is rounded to whole cents with
+    ``ROUND_HALF_UP`` and then capped by the promotion's maximum discount and
+    by the subtotal itself, so the discount is never negative and never
+    exceeds the subtotal.
+    """
+    raw = subtotal.scaled(promo.percent_off / Decimal("100"))
+    capped = min(raw.amount, promo.max_discount.amount, subtotal.amount)
+    return Money(max(capped, Decimal("0")))
 
 
 def compute_invoice_totals(
@@ -140,23 +144,16 @@ def compute_invoice_totals(
     if tax_rate < Decimal("0"):
         raise PricingError("tax rate must not be negative")
 
-    promo = _resolve_promo(promo_code) if promo_code is not None else None
+    promo = _lookup_promo(promo_code, today=date.today()) if promo_code is not None else None
 
     subtotal = compute_subtotal(items)
-    if promo is None:
-        discount = Money.zero()
-    else:
-        raw = (subtotal.amount * promo.percent_off / Decimal("100")).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-        capped = min(raw, promo.max_discount.amount, subtotal.amount)
-        discount = Money(max(capped, Decimal("0")))
+    discount = _compute_discount(subtotal, promo) if promo is not None else Money.zero()
 
-    tax_base = subtotal - discount
-    tax = Money((tax_base.amount * tax_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    taxable = subtotal - discount
+    tax = Money((taxable.amount * tax_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
     return InvoiceTotals(
         subtotal=subtotal,
         discount=discount,
         tax=tax,
-        total=tax_base + tax,
+        total=taxable + tax,
     )

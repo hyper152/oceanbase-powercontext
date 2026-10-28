@@ -1,9 +1,11 @@
 # PowerContext 重启持久化验证记录 / Restart persistence proof
 
-- 生成时间 / generated at: 2026-10-28T13:22:04.927069+00:00
-- 验证作用域 / proof scope: `scp_5g953q9t9wxgr0x0czazvg3crr`
+- 生成时间 / generated at: 2026-10-28T15:33:12.424466+00:00
+- 验证作用域 / proof scope: `scp_6bhfkc6vv9b769rxb5aj7qrwfn`
 - 服务端口 / server port: 8011
-- 重启前后进程号 / server pids: 15088 -> 47344
+- 存储模式 / storage mode: `embedded`
+- 冷启动 / cold start: True
+- 重启前后进程号 / server pids: 12560 -> 3020
 
 ## 结论 / Verdict
 
@@ -21,18 +23,18 @@
 
 - 命令 / command: `powercontext server run --env-file D:\.hyper\project\OceanBase\PowerContext-minimax\minimax\.runtime\server-restart-proof.env --port 8011`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:21:53.795757+00:00
+- 时间 / timestamp: 2026-10-28T15:32:56.727298+00:00
 - 详情 / detail:
 ```json
 {
-  "pid": 15088,
+  "pid": 12560,
   "server_info": {
     "schema_version": {
       "major": 1,
       "minor": 0
     },
     "product": "powercontext",
-    "server_id": "cf07ba4d-6b18-49d2-929f-975ab929ead5",
+    "server_id": "3fea6c1e-2853-4f0d-8cf9-35d57696f49a",
     "package_version": "1.4.1.dev180+gcd1b5e3f5",
     "api_contract_version": {
       "major": 1,
@@ -73,7 +75,7 @@
     }
   },
   "instance_identity": {
-    "service_instance_id": "0550d2eeb77c49d4bfceb2431f590e23",
+    "service_instance_id": "04aa6a783efd4653a9e9691a6eec96bc",
     "service_version": "1.4.1.dev180+gcd1b5e3f5"
   }
 }
@@ -81,16 +83,16 @@
 
 ### empty-state-before-write
 
-- 命令 / command: `POST /v1/memory/entries/list (scope=scp_5g953q9t9wxgr0x0czazvg3crr)`
+- 命令 / command: `POST /v1/memory/entries/list (scope=scp_6bhfkc6vv9b769rxb5aj7qrwfn)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:21:57.294880+00:00
+- 时间 / timestamp: 2026-10-28T15:32:59.478686+00:00
 - 条目 / entries:
 
 ### ingest-corpus-into-proof-scope
 
-- 命令 / command: `POST /v1/sources/content (scope=scp_5g953q9t9wxgr0x0czazvg3crr)`
+- 命令 / command: `POST /v1/sources/content (scope=scp_6bhfkc6vv9b769rxb5aj7qrwfn)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:21:57.294880+00:00
+- 时间 / timestamp: 2026-10-28T15:32:59.478686+00:00
 - 详情 / detail:
 ```json
 {
@@ -101,47 +103,47 @@
 
 ### write-progress
 
-- 命令 / command: `POST /v1/memory/remember (scope=scp_5g953q9t9wxgr0x0czazvg3crr)`
+- 命令 / command: `POST /v1/memory/remember (scope=scp_6bhfkc6vv9b769rxb5aj7qrwfn)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:21:57.294880+00:00
+- 时间 / timestamp: 2026-10-28T15:32:59.478686+00:00
 - 写入 / written:
-  - `progress` artifact=`art_74e6eaf60a4b4ce3bf3afeea5b804485` revision=1: SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
-  - `verification` artifact=`art_b94e2150447743a788fd25536e9ea909` revision=1: 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
+  - `progress` artifact=`art_3428e17e8f724126bf4fd8818215f267` revision=1: SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
+  - `verification` artifact=`art_f99e853010644f5696715f1b63b19c85` revision=1: 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
 
 ### read-back-before-restart
 
-- 命令 / command: `POST /v1/memory/entries/list (scope=scp_5g953q9t9wxgr0x0czazvg3crr)`
+- 命令 / command: `POST /v1/memory/entries/list (scope=scp_6bhfkc6vv9b769rxb5aj7qrwfn)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:21:57.294880+00:00
+- 时间 / timestamp: 2026-10-28T15:32:59.478686+00:00
 - 条目 / entries:
-  - `progress` artifact=`art_74e6eaf60a4b4ce3bf3afeea5b804485` revision=1 state=active: SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
-  - `verification` artifact=`art_b94e2150447743a788fd25536e9ea909` revision=1 state=active: 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
+  - `progress` artifact=`art_3428e17e8f724126bf4fd8818215f267` revision=1 state=active: SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
+  - `verification` artifact=`art_f99e853010644f5696715f1b63b19c85` revision=1 state=active: 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
 
 ### sql-check-before-restart
 
-- 命令 / command: `docker exec oceanbase-seekdb mysql ... SELECT ... FROM powercontext_sdd.pc_atomic_memory_current`
+- 命令 / command: `SELECT ... FROM powercontext_sdd.pc_atomic_memory_current (storage=embedded)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:21:57.444154+00:00
+- 时间 / timestamp: 2026-10-28T15:32:59.515380+00:00
 - 数据库直查 / direct SQL rows:
 ```
-art_74e6eaf60a4b4ce3bf3afeea5b804485	1	progress
-art_b94e2150447743a788fd25536e9ea909	1	verification
+art_3428e17e8f724126bf4fd8818215f267	1	progress
+art_f99e853010644f5696715f1b63b19c85	1	verification
 ```
 
 ### stop-server
 
-- 命令 / command: `kill -TERM 15088`
+- 命令 / command: `kill -TERM 12560`
 - 退出码 / exit code: `1`
-- 时间 / timestamp: 2026-10-28T13:21:57.446794+00:00
+- 时间 / timestamp: 2026-10-28T15:32:59.518378+00:00
 - 详情 / detail:
 ```json
 {
   "stopped": true,
   "signal": "SIGTERM",
   "exit_code": 1,
-  "pid": 15088,
-  "started_at": "2026-10-28T13:21:46.145726+00:00",
-  "stopped_at": "2026-10-28T13:21:57.446794+00:00"
+  "pid": 12560,
+  "started_at": "2026-10-28T15:32:33.805693+00:00",
+  "stopped_at": "2026-10-28T15:32:59.518378+00:00"
 }
 ```
 
@@ -149,18 +151,18 @@ art_b94e2150447743a788fd25536e9ea909	1	verification
 
 - 命令 / command: `powercontext server run --env-file D:\.hyper\project\OceanBase\PowerContext-minimax\minimax\.runtime\server-restart-proof.env --port 8011`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:22:04.591327+00:00
+- 时间 / timestamp: 2026-10-28T15:33:12.257579+00:00
 - 详情 / detail:
 ```json
 {
-  "pid": 47344,
+  "pid": 3020,
   "server_info": {
     "schema_version": {
       "major": 1,
       "minor": 0
     },
     "product": "powercontext",
-    "server_id": "cf07ba4d-6b18-49d2-929f-975ab929ead5",
+    "server_id": "3fea6c1e-2853-4f0d-8cf9-35d57696f49a",
     "package_version": "1.4.1.dev180+gcd1b5e3f5",
     "api_contract_version": {
       "major": 1,
@@ -201,7 +203,7 @@ art_b94e2150447743a788fd25536e9ea909	1	verification
     }
   },
   "instance_identity": {
-    "service_instance_id": "60e84d3d1c174aeba42722d8a7e274a0",
+    "service_instance_id": "e8821a49928e421ab5083a052e8afd76",
     "service_version": "1.4.1.dev180+gcd1b5e3f5"
   }
 }
@@ -209,29 +211,29 @@ art_b94e2150447743a788fd25536e9ea909	1	verification
 
 ### read-back-after-restart
 
-- 命令 / command: `POST /v1/memory/entries/list (scope=scp_5g953q9t9wxgr0x0czazvg3crr)`
+- 命令 / command: `POST /v1/memory/entries/list (scope=scp_6bhfkc6vv9b769rxb5aj7qrwfn)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:22:04.669615+00:00
+- 时间 / timestamp: 2026-10-28T15:33:12.350949+00:00
 - 条目 / entries:
-  - `progress` artifact=`art_74e6eaf60a4b4ce3bf3afeea5b804485` revision=1 state=active: SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
-  - `verification` artifact=`art_b94e2150447743a788fd25536e9ea909` revision=1 state=active: 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
+  - `progress` artifact=`art_3428e17e8f724126bf4fd8818215f267` revision=1 state=active: SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
+  - `verification` artifact=`art_f99e853010644f5696715f1b63b19c85` revision=1 state=active: 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
 
 ### sql-check-after-restart
 
-- 命令 / command: `docker exec oceanbase-seekdb mysql ... SELECT ... FROM powercontext_sdd.pc_atomic_memory_current`
+- 命令 / command: `SELECT ... FROM powercontext_sdd.pc_atomic_memory_current (storage=embedded)`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:22:04.869087+00:00
+- 时间 / timestamp: 2026-10-28T15:33:12.369715+00:00
 - 数据库直查 / direct SQL rows:
 ```
-art_74e6eaf60a4b4ce3bf3afeea5b804485	1	progress
-art_b94e2150447743a788fd25536e9ea909	1	verification
+art_3428e17e8f724126bf4fd8818215f267	1	progress
+art_f99e853010644f5696715f1b63b19c85	1	verification
 ```
 
 ### reuse-progress-in-next-context
 
 - 命令 / command: `python -m sddctx query --task '实现发票促销码折扣并保持金额不变量'`
 - 退出码 / exit code: `0`
-- 时间 / timestamp: 2026-10-28T13:22:04.924292+00:00
+- 时间 / timestamp: 2026-10-28T15:33:12.420798+00:00
 - 复用上下文 / reused progress: corpus=47 files_to_modify=['src/billing/pricing.py'] spec_sections=12 functional_tests=6 regression_tests=20
   - `progress` SDD 任务进度：在 billing.pricing.compute_invoice_totals 中实现促销码折扣，折扣上限取自促销码目录，税额按折后金额计算。
   - `verification` 验证结果：改动前目标功能测试失败 (promo 能力未实现)，回归测试通过；改动后目标功能测试与回归测试全部通过。
@@ -240,16 +242,16 @@ art_b94e2150447743a788fd25536e9ea909	1	verification
 
 - 命令 / command: `kill -TERM`
 - 退出码 / exit code: `1`
-- 时间 / timestamp: 2026-10-28T13:22:04.927069+00:00
+- 时间 / timestamp: 2026-10-28T15:33:12.424466+00:00
 - 详情 / detail:
 ```json
 {
   "stopped": true,
   "signal": "SIGTERM",
   "exit_code": 1,
-  "pid": 47344,
-  "started_at": "2026-10-28T13:21:57.452977+00:00",
-  "stopped_at": "2026-10-28T13:22:04.927069+00:00"
+  "pid": 3020,
+  "started_at": "2026-10-28T15:32:59.533691+00:00",
+  "stopped_at": "2026-10-28T15:33:12.424466+00:00"
 }
 ```
 

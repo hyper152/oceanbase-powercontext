@@ -7,6 +7,7 @@
     python -m sddctx state   list
     python -m sddctx minimax --task "<development task>" [--apply]
     python -m sddctx apply   --response <file> --project <dir>
+    python -m sddctx record-answer --answer <file> --model <id> --out <file>
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .minimax_client import MiniMaxClient, MiniMaxConfig, MiniMaxError
-from .models import Record
+from .model_answer import ORIGIN_API, ORIGIN_SESSION, load_model_answer
 from .parsing import scan_project
 from .render import SYSTEM_PROMPT, render_prompt, render_report
 from .retrieval import build_context_pack
@@ -201,6 +202,33 @@ def parse_model_files(text: str) -> dict[str, str]:
     return files
 
 
+def _relative_label(project: Path, target: Path) -> str:
+    """Return the POSIX path of ``target`` relative to ``project``."""
+    try:
+        return target.relative_to(project).as_posix()
+    except ValueError:
+        return target.as_posix()
+
+
+def resolve_model_path(project: Path, relative: str) -> Path:
+    """Resolve a file block path against the project root.
+
+    A model may answer with a path that carries the repository folder, for
+    example ``sample/src/billing/pricing.py`` while the project root already
+    is ``sample``.  Such a prefix is stripped so that the answer applies to
+    the intended file instead of creating a stray nested directory.
+    """
+    candidate = (project / relative).resolve()
+    if candidate.exists():
+        return candidate
+    parts = Path(relative).parts
+    for index in range(len(parts)):
+        trimmed = Path(*parts[index:])
+        if trimmed.parts and (project / trimmed).exists():
+            return (project / trimmed).resolve()
+    return candidate
+
+
 def command_minimax(args: argparse.Namespace) -> int:
     async def run() -> int:
         store, pack = await _pack_for_task(args, args.task)
@@ -274,15 +302,16 @@ def command_minimax(args: argparse.Namespace) -> int:
             project = Path(args.project).resolve()
             diffs: list[str] = []
             for relative, content in files.items():
-                target = project / relative
+                target = resolve_model_path(project, relative)
                 original = target.read_text(encoding="utf-8") if target.exists() else ""
+                label = _relative_label(project, target)
                 diffs.append(
                     "".join(
                         difflib.unified_diff(
                             original.splitlines(keepends=True),
                             content.splitlines(keepends=True),
-                            fromfile=f"a/{relative}",
-                            tofile=f"b/{relative}",
+                            fromfile=f"a/{label}",
+                            tofile=f"b/{label}",
                         )
                     )
                 )
@@ -307,15 +336,16 @@ def command_apply(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     diffs: list[str] = []
     for relative, body in files.items():
-        target = project / relative
+        target = resolve_model_path(project, relative)
         original = target.read_text(encoding="utf-8") if target.exists() else ""
+        label = _relative_label(project, target)
         diffs.append(
             "".join(
                 difflib.unified_diff(
                     original.splitlines(keepends=True),
                     body.splitlines(keepends=True),
-                    fromfile=f"a/{relative}",
-                    tofile=f"b/{relative}",
+                    fromfile=f"a/{label}",
+                    tofile=f"b/{label}",
                 )
             )
         )
@@ -325,6 +355,49 @@ def command_apply(args: argparse.Namespace) -> int:
         Path(args.diff).parent.mkdir(parents=True, exist_ok=True)
         Path(args.diff).write_text("\n".join(diffs), encoding="utf-8")
     print(f"applied {len(files)} file(s)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# record-answer
+# ---------------------------------------------------------------------------
+
+
+def command_record_answer(args: argparse.Namespace) -> int:
+    """Stamp a model answer with the digests of the prompt and context pack.
+
+    The command turns a raw answer file into the response document that
+    ``sddctx apply`` consumes.  It verifies that the answer really contains
+    file blocks and refuses to write an answer that cannot be applied.
+    """
+    try:
+        answer = load_model_answer(
+            args.answer,
+            model=args.model,
+            origin=args.origin,
+            prompt_path=args.prompt,
+            context_pack_path=args.context_pack,
+            api_attempt_path=args.api_attempt,
+        )
+    except (OSError, ValueError) as error:
+        print(f"cannot read the model answer: {error}", file=sys.stderr)
+        return 2
+
+    files = parse_model_files(answer.content)
+    if not files:
+        print(
+            "the model answer contains no '=== FILE: <path> ===' block, so it cannot be applied",
+            file=sys.stderr,
+        )
+        return 2
+
+    payload = answer.to_response_json()
+    payload["files"] = sorted(files)
+    _write_json(args.out, payload)
+    print(
+        f"recorded the {args.origin} answer of {args.model} "
+        f"({len(files)} file block(s)) in {args.out}"
+    )
     return 0
 
 
@@ -384,6 +457,23 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--project", required=True)
     apply_parser.add_argument("--diff", default=None)
     apply_parser.set_defaults(func=command_apply)
+
+    record = sub.add_parser(
+        "record-answer", help="Stamp a model answer with the digests of its prompt and context pack"
+    )
+    record.add_argument("--answer", required=True, help="File holding the raw model answer")
+    record.add_argument("--model", required=True, help="Identifier of the model that produced the answer")
+    record.add_argument(
+        "--origin",
+        choices=(ORIGIN_API, ORIGIN_SESSION),
+        default=ORIGIN_SESSION,
+        help="Whether the answer came from the HTTP API or from the model running in the agent session",
+    )
+    record.add_argument("--prompt", default=None, help="The prompt the model was given")
+    record.add_argument("--context-pack", default=None, help="The context pack the prompt was rendered from")
+    record.add_argument("--api-attempt", default=None, help="The recorded HTTP API attempt, if any")
+    record.add_argument("--out", required=True, help="Where the stamped answer is written")
+    record.set_defaults(func=command_record_answer)
 
     return parser
 

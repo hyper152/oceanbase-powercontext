@@ -5,6 +5,19 @@
 
 所有命令在仓库根目录 `PowerContext-minimax/` 执行。
 
+> **存储模式**：脚本默认按**嵌入式 seekdb**（`--storage embedded`，免 Docker）工作。
+> 使用容器模式时改成 `--storage docker`（并按需加 `--env-file`）。
+> 数据目录默认 `minimax/.runtime/seekdb-data`，可用 `--seekdb-dir` 覆盖。
+>
+> **服务生命周期**：`--server-url` 默认为空，此时脚本会自行启动一个
+> PowerContext Server（按 `--storage` 派生环境）、跑完再关掉，
+> 因此重置不需要一个已经跑着的服务。
+>
+> **嵌入式模式的提交语义**：seekdb 的握手不返回 autocommit 状态，
+> 直连数据库的写操作必须显式 `COMMIT`，否则会在句柄关闭时被回滚。
+> `sddctx/sqlprobe.py` 已统一补上这一步——早期版本正是在这里让
+> 「删除作用域」变成了空操作。
+
 ---
 
 ## 1. 还原样例项目到改动前状态（最常用）
@@ -74,10 +87,15 @@ cd minimax
 该命令同时清掉接口探测时留下的 `Probe` 作用域。
 
 > 删除只针对指定的 `scope_id`，不影响 `powercontext_sdd` 库中的其它作用域。
+> 删除会清掉该作用域的**语料与进度**（`pc_sources` 与 `pc_atomic_memory_current`
+> 等所有带 `scope_id` 列的表），因此重置后 `prior_progress` 归零、
+> 语料条数回到 47。
 
 ---
 
 ## 4. 完全重置数据库
+
+**容器模式**：
 
 ```bash
 # 停止 PowerContext Server 后再操作
@@ -102,6 +120,18 @@ docker rm -f oceanbase-seekdb
 docker run -d --name oceanbase-seekdb -p 2881:2881 oceanbase/seekdb:1.4.0
 ```
 
+**嵌入式模式**（数据就是一个本地目录，删目录即彻底重置）：
+
+```bash
+cd minimax
+.venv/Scripts/python.exe scripts/reset.py --database --storage embedded
+# deleted the embedded seekdb data directory ...; restart PowerContext Server to rebuild the schema
+
+# 重新导入（脚本会自行拉起服务、建表、导入）
+.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage embedded
+# deleted scope scp_xxxxxxxx, recreated it as scp_yyyyyyyy and re-imported 47 records
+```
+
 ---
 
 ## 5. 清理运行时目录
@@ -117,7 +147,10 @@ rm -f  minimax/.runtime/server-restart-proof.env minimax/.runtime/server-restart
 若要完全重建：
 
 ```bash
+# 容器模式
 cp minimax/env/server.env.example minimax/.runtime/server.env
+# 嵌入式 seekdb 模式
+cp minimax/env/server.embedded-seekdb.env.example minimax/.runtime/server.env
 # 编辑占位符
 ```
 
@@ -161,4 +194,17 @@ cd minimax
 .venv/Scripts/python.exe scripts/reset.py --worktree             # 还原样例项目
 .venv/Scripts/python.exe scripts/reset.py --artifacts            # 清空产物
 .venv/Scripts/python.exe scripts/reset.py --database             # 重建数据库
+
+# 容器模式（需要 Docker）
+.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage docker
 ```
+
+存储模式相关的参数：
+
+| 参数 | 取值 | 说明 |
+| --- | --- | --- |
+| `--storage` | `embedded`（默认）/ `docker` | 决定直查 SQL 的通道：`pylibseekdb` 绑定或 `docker exec ... mysql`；同时决定脚本为服务派生的环境 |
+| `--seekdb-dir` | 目录路径（默认 `.runtime/seekdb-data`） | 嵌入式 seekdb 的数据目录 |
+| `--container` | `oceanbase-seekdb` | 容器名 |
+| `--server-url` | 空（默认）/ `http://127.0.0.1:8010` | 为空时脚本自行启停服务；填地址则复用 |
+| `--port` | `8010` | 自行启动服务时使用的端口（重启持久化验证默认 `8011`，规格修订验证默认 `8012`） |

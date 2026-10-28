@@ -20,10 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
-import signal
-import socket
-import subprocess
+import shutil
 import sys
 import time
 from datetime import UTC, datetime
@@ -35,157 +32,31 @@ sys.path.insert(0, str(MINIMAX_DIR))
 
 from sddctx.parsing import scan_project  # noqa: E402
 from sddctx.retrieval import build_context_pack  # noqa: E402
+from sddctx.sqlprobe import run_sql  # noqa: E402
 from sddctx.store import PowerContextStore, build_client  # noqa: E402
+from server_runtime import (  # noqa: E402
+    STORAGE_DOCKER,
+    STORAGE_EMBEDDED,
+    ServerHandle,
+    build_server_env,
+    parse_env_file,
+    port_is_free,
+    write_env_file,
+)
 
 RUNTIME_DIR = MINIMAX_DIR / ".runtime"
 ARTIFACT_DIR = MINIMAX_DIR / "artifacts" / "restart"
 SAMPLE_DIR = MINIMAX_DIR / "sample"
 DEFAULT_PORT = 8011
+# The restart proof owns its data directory: the server has to open it, write,
+# close it and open it again.  Sharing the directory with a long-running server
+# would attach to a live instance and the restart would no longer be a cold
+# start of the storage engine.
+DEFAULT_SEEKDB_DIR = RUNTIME_DIR / "seekdb-restart-proof"
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _port_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.settimeout(0.5)
-        return probe.connect_ex(("127.0.0.1", port)) != 0
-
-
-def _powercontext_executable() -> Path:
-    """Locate the ``powercontext`` console script of the active environment."""
-    candidates = [
-        Path(sys.executable).parent / "powercontext.exe",
-        Path(sys.executable).parent / "powercontext",
-        Path(sys.executable).parent / "powercontext-script.py",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise RuntimeError(
-        "the 'powercontext' console script was not found next to the active interpreter; "
-        "install the project with 'uv pip install -e .'"
-    )
-
-
-def _write_env_file(source: Path, target: Path, port: int, home: Path) -> Path:
-    """Derive a runnable environment file from the operator's own file."""
-    replacements = {
-        "POWERCONTEXT_SERVER_HTTP_PORT": str(port),
-        "POWERCONTEXT_SERVER_HTTP_HOST": "127.0.0.1",
-        # The environment file parser treats a backslash as an escape character,
-        # so a Windows path has to be written with forward slashes.
-        "POWERCONTEXT_HOME": home.as_posix(),
-    }
-    lines = source.read_text(encoding="utf-8").splitlines()
-    output: list[str] = []
-    seen: set[str] = set()
-    for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key = stripped.split("=", 1)[0].strip()
-            if key in replacements:
-                output.append(f"{key}={replacements[key]}")
-                seen.add(key)
-                continue
-        output.append(line)
-    for key, value in replacements.items():
-        if key not in seen:
-            output.append(f"{key}={value}")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("\n".join(output) + "\n", encoding="utf-8")
-    return target
-
-
-class ServerHandle:
-    """A PowerContext Server process owned by this script."""
-
-    def __init__(self, env_file: Path, port: int, log_path: Path) -> None:
-        self.env_file = env_file
-        self.port = port
-        self.log_path = log_path
-        self.process: subprocess.Popen[bytes] | None = None
-        self.started_at: str | None = None
-
-    def start(self) -> None:
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = self.log_path.open("ab")
-        executable = _powercontext_executable()
-        self.process = subprocess.Popen(
-            [
-                str(executable),
-                "server",
-                "run",
-                "--env-file",
-                str(self.env_file),
-                "--port",
-                str(self.port),
-            ],
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
-            cwd=str(REPO_ROOT),
-        )
-        self.started_at = _now()
-
-    @property
-    def pid(self) -> int | None:
-        return self.process.pid if self.process is not None else None
-
-    def wait_ready(self, timeout: float = 90.0) -> dict[str, object]:
-        import urllib.error
-        import urllib.request
-
-        deadline = time.time() + timeout
-        last_error = ""
-        while time.time() < deadline:
-            if self.process is not None and self.process.poll() is not None:
-                raise RuntimeError(
-                    f"PowerContext Server exited early with code {self.process.returncode}; "
-                    f"see {self.log_path}"
-                )
-            try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{self.port}/v1/server-info", timeout=3
-                ) as response:
-                    return json.loads(response.read().decode("utf-8"))
-            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as error:
-                last_error = str(error)
-                time.sleep(0.5)
-        raise RuntimeError(f"PowerContext Server was not ready in {timeout}s: {last_error}")
-
-    def stop(self) -> dict[str, object]:
-        if self.process is None:
-            return {"stopped": False, "reason": "process was never started"}
-        self.process.send_signal(signal.SIGTERM)
-        try:
-            exit_code = self.process.wait(timeout=60)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            exit_code = self.process.wait(timeout=30)
-        return {
-            "stopped": True,
-            "signal": "SIGTERM",
-            "exit_code": exit_code,
-            "pid": self.process.pid,
-            "started_at": self.started_at,
-            "stopped_at": _now(),
-        }
-
-    def instance_identity(self) -> dict[str, str]:
-        """Read the instance identity the server prints on every request."""
-        identity: dict[str, str] = {}
-        if not self.log_path.exists():
-            return identity
-        text = self.log_path.read_text(encoding="utf-8", errors="replace")
-        for key in ("service_instance_id", "service_version"):
-            marker = f'{key}="'
-            index = text.rfind(marker)
-            if index != -1:
-                rest = text[index + len(marker) :]
-                identity[key] = rest.split('"', 1)[0]
-        return identity
 
 
 async def _store(port: int) -> PowerContextStore:
@@ -217,46 +88,43 @@ async def _write_and_read(port: int, task_text: str, verification_text: str):
     return store, empty_state, written, read_back, entries
 
 
-def _mysql_rows(sql: str) -> str:
-    """Run a read-only query against the seekdb container, best effort."""
-    try:
-        completed = subprocess.run(
-            [
-                "docker",
-                "exec",
-                "oceanbase-seekdb",
-                "mysql",
-                "-h127.0.0.1",
-                "-P2881",
-                "-uroot",
-                "-N",
-                "-e",
-                sql,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return f"<unavailable: {error}>"
-    return (completed.stdout or completed.stderr).strip()
+def _sql_rows(sql: str, *, storage: str, seekdb_dir: Path) -> str:
+    """Run a read-only query against the store that backs PowerContext.
+
+    The direct query is what proves that the entries are in the database and
+    not in a process-local cache.  It is best effort: when the store cannot be
+    reached, the reason is recorded instead of being hidden.
+    """
+    result = run_sql(sql, mode=storage, seekdb_dir=seekdb_dir)
+    if result.ok:
+        return result.text
+    return f"<unavailable: {result.error}>"
 
 
 async def main_async(args: argparse.Namespace) -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    env_source = Path(args.env_file).resolve()
-    env_file = _write_env_file(
-        env_source,
-        RUNTIME_DIR / "server-restart-proof.env",
-        args.port,
-        RUNTIME_DIR / "home-restart-proof",
+    seekdb_dir = Path(args.seekdb_dir).expanduser().resolve()
+    base_env: dict[str, str] = {}
+    if args.env_file:
+        base_env = parse_env_file(Path(args.env_file).expanduser().resolve())
+    env = build_server_env(
+        storage=args.storage,
+        seekdb_dir=seekdb_dir,
+        port=args.port,
+        home=RUNTIME_DIR / "home-restart-proof",
+        base_env=base_env,
     )
+    env_file = write_env_file(env, RUNTIME_DIR / "server-restart-proof.env")
     log_path = RUNTIME_DIR / "server-restart-proof.log"
     if log_path.exists():
         log_path.unlink()
+
+    # The embedded store has to start empty, otherwise "the scope was empty"
+    # would be a statement about a fresh scope inside a populated database.
+    if args.storage == STORAGE_EMBEDDED and not args.keep_store:
+        if seekdb_dir.exists():
+            shutil.rmtree(seekdb_dir)
+        seekdb_dir.mkdir(parents=True, exist_ok=True)
 
     steps: list[dict[str, object]] = []
 
@@ -271,7 +139,7 @@ async def main_async(args: argparse.Namespace) -> int:
             }
         )
 
-    if not _port_free(args.port):
+    if not port_is_free(args.port):
         print(f"port {args.port} is already in use", file=sys.stderr)
         return 1
 
@@ -328,13 +196,15 @@ async def main_async(args: argparse.Namespace) -> int:
         {"entry_count": len(read_back_before), "entries": [entry.__dict__ for entry in read_back_before]},
     )
 
-    sql_before = _mysql_rows(
+    sql_before = _sql_rows(
         "SELECT artifact_id, revision, kind FROM powercontext_sdd.pc_atomic_memory_current "
-        "WHERE scope_id = '%s' ORDER BY artifact_id;" % scope_id
+        "WHERE scope_id = '%s' ORDER BY artifact_id;" % scope_id,
+        storage=args.storage,
+        seekdb_dir=seekdb_dir,
     )
     record(
         "sql-check-before-restart",
-        "docker exec oceanbase-seekdb mysql ... SELECT ... FROM powercontext_sdd.pc_atomic_memory_current",
+        f"SELECT ... FROM powercontext_sdd.pc_atomic_memory_current (storage={args.storage})",
         0,
         {"rows": sql_before},
     )
@@ -372,13 +242,15 @@ async def main_async(args: argparse.Namespace) -> int:
         {"entry_count": len(read_back_after), "entries": [entry.__dict__ for entry in read_back_after]},
     )
 
-    sql_after = _mysql_rows(
+    sql_after = _sql_rows(
         "SELECT artifact_id, revision, kind FROM powercontext_sdd.pc_atomic_memory_current "
-        "WHERE scope_id = '%s' ORDER BY artifact_id;" % scope_id
+        "WHERE scope_id = '%s' ORDER BY artifact_id;" % scope_id,
+        storage=args.storage,
+        seekdb_dir=seekdb_dir,
     )
     record(
         "sql-check-after-restart",
-        "docker exec oceanbase-seekdb mysql ... SELECT ... FROM powercontext_sdd.pc_atomic_memory_current",
+        f"SELECT ... FROM powercontext_sdd.pc_atomic_memory_current (storage={args.storage})",
         0,
         {"rows": sql_after},
     )
@@ -435,6 +307,15 @@ async def main_async(args: argparse.Namespace) -> int:
         "scope_id": scope_id,
         "env_file": str(env_file),
         "port": args.port,
+        "storage": {
+            "mode": args.storage,
+            "seekdb_dir": str(seekdb_dir) if args.storage == STORAGE_EMBEDDED else None,
+            "server_database_kind": env.get("POWERCONTEXT_SERVER_DATABASE_KIND"),
+            "server_database_path": env.get("POWERCONTEXT_SERVER_DATABASE_PATH"),
+            "store_wiped_before_the_run": args.storage == STORAGE_EMBEDDED
+            and not args.keep_store,
+            "cold_start": args.storage == STORAGE_EMBEDDED and not args.keep_store,
+        },
         "server_pids": {"before_restart": server.pid, "after_restart": server2.pid},
         "verdict": verdict,
         "steps": steps,
@@ -455,6 +336,8 @@ def _transcript(payload: dict[str, object]) -> str:
         f"- 生成时间 / generated at: {payload['generated_at']}",
         f"- 验证作用域 / proof scope: `{payload['scope_id']}`",
         f"- 服务端口 / server port: {payload['port']}",
+        f"- 存储模式 / storage mode: `{payload['storage']['mode']}`",
+        f"- 冷启动 / cold start: {payload['storage']['cold_start']}",
         f"- 重启前后进程号 / server pids: {payload['server_pids']['before_restart']} -> "
         f"{payload['server_pids']['after_restart']}",
         "",
@@ -526,11 +409,29 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Prove PowerContext persistence across a restart")
     parser.add_argument(
         "--env-file",
-        default=str(RUNTIME_DIR / "server.env"),
-        help="Environment file of the operator's PowerContext Server",
+        default=None,
+        help="Optional environment file of an existing PowerContext Server. "
+        "In the embedded mode the script derives a complete environment itself.",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--storage",
+        choices=(STORAGE_DOCKER, STORAGE_EMBEDDED),
+        default=STORAGE_EMBEDDED,
+        help="Which store backs PowerContext: a seekdb container or the embedded seekdb.",
+    )
+    parser.add_argument(
+        "--seekdb-dir",
+        default=str(DEFAULT_SEEKDB_DIR),
+        help="Data directory of the embedded seekdb instance.",
+    )
+    parser.add_argument(
+        "--keep-store",
+        action="store_true",
+        help="Do not wipe the embedded data directory before the run.",
+    )
     args = parser.parse_args()
+    args.seekdb_dir = Path(args.seekdb_dir).expanduser().resolve()
     return asyncio.run(main_async(args))
 
 

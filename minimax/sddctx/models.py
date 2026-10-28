@@ -73,7 +73,7 @@ class Record:
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     @classmethod
-    def from_envelope(cls, envelope: str) -> "Record":
+    def from_envelope(cls, envelope: str) -> Record:
         payload = json.loads(envelope)
         if payload.get("schema") != RECORD_SCHEMA:
             raise ValueError(f"unsupported record schema: {payload.get('schema')!r}")

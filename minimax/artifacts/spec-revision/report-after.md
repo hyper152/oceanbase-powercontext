@@ -1,5 +1,5 @@
 Task: 实现发票促销码折扣并保持金额不变量
-Scope: scp_0gwh7r7fn7gcwzwnewendrm5kp
+Scope: scp_66cw2vhn0j1g89xsc29p551pwk
 Corpus records considered: 47
 Files to modify: src/billing/pricing.py
 

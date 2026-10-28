@@ -1,5 +1,5 @@
 Task: 为发票总价增加促销码折扣能力，先折扣后计税
-Scope: scp_2fervhjt293vd3eym9mdjn5q18
+Scope: scp_6d4rq92ngwcnzytn87ebhqyqr3
 Corpus records considered: 47
 Files to modify: src/billing/pricing.py
 

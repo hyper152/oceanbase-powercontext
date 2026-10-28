@@ -11,7 +11,7 @@ collected 26 items / 20 deselected / 6 selected
 
 tests\test_pricing.py ......                                             [100%]
 
-====================== 6 passed, 20 deselected in 0.03s =======================
+====================== 6 passed, 20 deselected in 0.05s =======================
 
 --- stderr ---
 

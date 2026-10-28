@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from .models import Record
 from .store import CorpusEntry, ProgressEntry
 
-__all__ = ["ContextPack", "ContextItem", "build_context_pack"]
+__all__ = ["ContextItem", "ContextPack", "build_context_pack"]
 
 _LATIN = re.compile(r"[a-z0-9_]+")
 _CJK = re.compile(r"[\u4e00-\u9fff]+")

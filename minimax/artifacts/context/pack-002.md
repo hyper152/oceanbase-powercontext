@@ -1,5 +1,5 @@
 Task: 为发票总价增加促销码折扣能力，先折扣后计税
-Scope: scp_2fervhjt293vd3eym9mdjn5q18
+Scope: scp_6d4rq92ngwcnzytn87ebhqyqr3
 Corpus records considered: 47
 Files to modify: src/billing/pricing.py
 
@@ -57,6 +57,6 @@ Files to modify: src/billing/pricing.py
 - test_regression_total_equals_subtotal_plus_tax | tests/test_pricing.py:50-54 | score=0.0000 | sddctx:v1:test_case:tests/test_pricing.py::test_regression_total_equals_subtotal_plus_tax:9d79f7464dea | db_position=36 | file_sha256=c1aa6617008353759f86de1f6aa6469846061729f8a4dae3000e5b3dd65d24d9 | server_digest=sha256:ddd2f27f074a2f1dcfe074d558b83070da8054677d3e31709d840b6bc3a73149
 
 ## Progress reused from the context store (3)
-- [validation] 改动前：20 个回归测试通过，6 个功能测试失败（促销码能力尚未实现） / pre-change: 20 regression tests pass, 6 functional tests fail (artifact=art_0f2cb96fa39b47bfb3dbe9111f8bee34, state=active)
-- [validation] 改动后：全量测试通过（exit=0），回归测试与目标功能测试均通过 / post-change: full suite exit=0, regression and target functional suites pass (artifact=art_1b34b01a17644b88a2de09d0d49309d4, state=active)
-- [progress] 已将 47 条 SDD 记录导入 PowerContext 作用域 scp_2fervhjt293vd3eym9mdjn5q18 / imported 47 SDD records into scope scp_2fervhjt293vd3eym9mdjn5q18 (artifact=art_958cc0f74c7a4a6994c8273c2d310349, state=active)
+- [validation] 改动前：20 个回归测试通过，6 个功能测试失败（促销码能力尚未实现） / pre-change: 20 regression tests pass, 6 functional tests fail (artifact=art_53f0e1c3229f4493b78c3e36c4b8a684, state=active)
+- [progress] 已将 47 条 SDD 记录导入 PowerContext 作用域 scp_6d4rq92ngwcnzytn87ebhqyqr3 / imported 47 SDD records into scope scp_6d4rq92ngwcnzytn87ebhqyqr3 (artifact=art_9efbf4e29d884a38afedab6e1a4a0f7d, state=active)
+- [validation] 改动后：全量测试通过（exit=0），回归测试与目标功能测试均通过 / post-change: full suite exit=0, regression and target functional suites pass (artifact=art_f6be5372c59044be9c809cc68a78213a, state=active)

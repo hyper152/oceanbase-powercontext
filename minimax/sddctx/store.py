@@ -28,7 +28,7 @@ from powercontext.http._generated.models import (
 
 from .models import Record
 
-__all__ = ["CorpusEntry", "ProgressEntry", "PowerContextStore"]
+__all__ = ["CorpusEntry", "PowerContextStore", "ProgressEntry"]
 
 
 @dataclass(frozen=True)

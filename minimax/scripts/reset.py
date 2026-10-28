@@ -20,7 +20,6 @@ import argparse
 import asyncio
 import json
 import shutil
-import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -29,69 +28,97 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from sddctx.parsing import scan_project  # noqa: E402
+from sddctx.sqlprobe import (  # noqa: E402
+    STORAGE_DOCKER,
+    STORAGE_EMBEDDED,
+    detect_schema,
+    run_sql,
+)
 from sddctx.store import PowerContextStore, build_client  # noqa: E402
+from server_runtime import (  # noqa: E402
+    ServerHandle,
+    build_server_env,
+    parse_env_file,
+    port_is_free,
+    write_env_file,
+)
 
 SAMPLE_DIR = ROOT / "sample"
 ARTIFACTS_DIR = ROOT / "artifacts"
 BEFORE_SNAPSHOT = ARTIFACTS_DIR / "snapshots" / "before"
 DEFAULT_DATABASE = "powercontext_sdd"
 MYSQL_CONTAINER = "oceanbase-seekdb"
+DEFAULT_SEEKDB_DIR = ROOT / ".runtime" / "seekdb-data"
+DEFAULT_PORT = 8010
 
 
 def _say(message: str) -> None:
     print(message, flush=True)
 
 
-def _mysql(sql: str, database: str | None = None) -> subprocess.CompletedProcess[str]:
-    """Run SQL against the seekdb container.
-
-    The statement is fed through stdin because a reset can produce a script
-    that exceeds the Windows command line length limit.
-    """
-    command = [
-        "docker",
-        "exec",
-        "-i",
-        MYSQL_CONTAINER,
-        "mysql",
-        "-h127.0.0.1",
-        "-P2881",
-        "-uroot",
-        "-N",
-    ]
-    if database:
-        command += ["-D", database]
-    return subprocess.run(
-        command,
-        input=sql,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=120,
-        check=False,
+def _sql(
+    sql: str,
+    *,
+    storage: str,
+    database: str,
+    container: str,
+    seekdb_dir: Path,
+) -> tuple[str, str]:
+    """Run SQL against the configured store and return ``(output, error)``."""
+    result = run_sql(
+        sql,
+        mode=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
     )
+    return result.text, result.error
 
 
-def _scope_tables(database: str) -> list[str]:
+def _scope_tables(storage: str, database: str, container: str, seekdb_dir: Path) -> list[str]:
     """Every PowerContext table that carries a ``scope_id`` column."""
-    completed = _mysql(
-        "SELECT table_name FROM information_schema.columns "
-        f"WHERE table_schema = '{database}' AND column_name = 'scope_id';",
-        database,
+    schema = detect_schema(
+        mode=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
     )
-    if completed.returncode != 0:
+    output, error = _sql(
+        "SELECT table_name FROM information_schema.columns "
+        f"WHERE table_schema = '{schema}' AND column_name = 'scope_id';",
+        storage=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
+    )
+    if error:
+        _say(f"could not resolve the PowerContext tables: {error}")
         return []
-    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    return [line.strip() for line in output.splitlines() if line.strip()]
 
 
-def reset_scope(server_url: str, title: str, project: Path, database: str) -> int:
+def reset_scope(
+    server_url: str,
+    title: str,
+    project: Path,
+    database: str,
+    *,
+    storage: str,
+    container: str,
+    seekdb_dir: Path,
+) -> int:
     """Delete a scope's rows from the database and import the project again.
 
     PowerContext does not expose a scope deletion endpoint, so the reset is done
     directly against the store.  Foreign key checks are disabled for the
     session because the scope's rows span several tables.
     """
+    schema = detect_schema(
+        mode=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
+    )
 
     async def run() -> int:
         client = build_client(server_url)
@@ -99,18 +126,24 @@ def reset_scope(server_url: str, title: str, project: Path, database: str) -> in
         store = PowerContextStore(client, default_scope.scope_id)
         deleted_scope = await store.ensure_scope(title, "MiniMax SDD context management corpus")
 
-        tables = _scope_tables(database)
+        tables = _scope_tables(storage, database, container, seekdb_dir)
         if not tables:
             _say("could not resolve the PowerContext tables; is the database reachable?")
             return 1
         statements = ["SET FOREIGN_KEY_CHECKS=0;"]
         statements += [
-            f"DELETE FROM `{database}`.`{table}` WHERE scope_id = '{deleted_scope}';" for table in tables
+            f"DELETE FROM `{schema}`.`{table}` WHERE scope_id = '{deleted_scope}';" for table in tables
         ]
         statements.append("SET FOREIGN_KEY_CHECKS=1;")
-        completed = _mysql("\n".join(statements), database)
-        if completed.returncode != 0:
-            _say(f"delete failed: {completed.stderr.strip()}")
+        output, error = _sql(
+            "\n".join(statements),
+            storage=storage,
+            database=database,
+            container=container,
+            seekdb_dir=seekdb_dir,
+        )
+        if error:
+            _say(f"delete failed: {error.strip() or output.strip()}")
             return 1
 
         # The scope row itself was part of the deletion, so the scope is
@@ -156,7 +189,15 @@ def reset_worktree() -> int:
     return 0
 
 
-def prune_demo_scopes(server_url: str, prefixes: tuple[str, ...], database: str) -> int:
+def prune_demo_scopes(
+    server_url: str,
+    prefixes: tuple[str, ...],
+    database: str,
+    *,
+    storage: str,
+    container: str,
+    seekdb_dir: Path,
+) -> int:
     """Delete the throwaway scopes created by the verification scripts."""
 
     with urllib.request.urlopen(f"{server_url}/v1/scopes", timeout=30) as response:
@@ -167,32 +208,56 @@ def prune_demo_scopes(server_url: str, prefixes: tuple[str, ...], database: str)
     if not targets:
         _say("no demo scopes to prune")
         return 0
-    tables = _scope_tables(database)
+    tables = _scope_tables(storage, database, container, seekdb_dir)
+    schema = detect_schema(
+        mode=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
+    )
     statements = ["SET FOREIGN_KEY_CHECKS=0;"]
     for item in targets:
         scope_id = str(item.get("scope_id"))
         for table in tables:
             statements.append(
-                f"DELETE FROM `{database}`.`{table}` WHERE scope_id = '{scope_id}';"
+                f"DELETE FROM `{schema}`.`{table}` WHERE scope_id = '{scope_id}';"
             )
         _say(f"pruned scope {scope_id} ({item.get('title')})")
     statements.append("SET FOREIGN_KEY_CHECKS=1;")
-    completed = _mysql("\n".join(statements), database)
-    if completed.returncode != 0:
-        _say(f"prune failed: {completed.stderr.strip()}")
+    output, error = _sql(
+        "\n".join(statements),
+        storage=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
+    )
+    if error:
+        _say(f"prune failed: {error.strip() or output.strip()}")
         return 1
     return 0
 
 
-def reset_database(database: str) -> int:
+def reset_database(database: str, *, storage: str, container: str, seekdb_dir: Path) -> int:
     """Drop and recreate the PowerContext database."""
-    drop = _mysql(f"DROP DATABASE IF EXISTS {database};")
-    if drop.returncode != 0:
-        _say(f"drop failed: {drop.stderr.strip()}")
-        return 1
-    create = _mysql(f"CREATE DATABASE {database} CHARACTER SET utf8mb4;")
-    if create.returncode != 0:
-        _say(f"create failed: {create.stderr.strip()}")
+    if storage == STORAGE_EMBEDDED:
+        # The embedded store is a directory; dropping the database means
+        # removing it.  The server recreates the schema on the next start.
+        if seekdb_dir.exists():
+            shutil.rmtree(seekdb_dir)
+        _say(
+            f"deleted the embedded seekdb data directory {seekdb_dir}; "
+            "restart PowerContext Server to rebuild the schema"
+        )
+        return 0
+    output, error = _sql(
+        f"DROP DATABASE IF EXISTS {database}; CREATE DATABASE {database} CHARACTER SET utf8mb4;",
+        storage=storage,
+        database=database,
+        container=container,
+        seekdb_dir=seekdb_dir,
+    )
+    if error:
+        _say(f"drop failed: {error.strip() or output.strip()}")
         return 1
     _say(f"recreated database {database}; restart PowerContext Server to rebuild the schema")
     return 0
@@ -206,14 +271,72 @@ def list_scopes(server_url: str) -> int:
     return 0
 
 
+def _start_managed_server(
+    *,
+    storage: str,
+    seekdb_dir: Path,
+    port: int,
+    env_file: str | None,
+) -> ServerHandle:
+    """Start a PowerContext Server that matches the requested storage mode."""
+    if not port_is_free(port):
+        raise RuntimeError(f"port {port} is already in use")
+    base_env: dict[str, str] = {}
+    if env_file:
+        base_env = parse_env_file(Path(env_file).expanduser().resolve())
+    env = build_server_env(
+        storage=storage,
+        seekdb_dir=seekdb_dir,
+        port=port,
+        home=ROOT / ".runtime" / "home",
+        base_env=base_env,
+    )
+    target = write_env_file(env, ROOT / ".runtime" / "server.env")
+    log_path = ROOT / ".runtime" / "server.log"
+    if log_path.exists():
+        log_path.unlink()
+    server = ServerHandle(target, port, log_path)
+    server.start()
+    server.wait_ready()
+    return server
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Reset the local SDD context management state")
-    parser.add_argument("--server-url", default="http://127.0.0.1:8010")
+    parser.add_argument(
+        "--server-url",
+        default=None,
+        help=(
+            "Use an already running PowerContext Server. When omitted the script starts and "
+            "stops its own server, so that a reset never depends on a long-running process."
+        ),
+    )
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--env-file",
+        default=None,
+        help=(
+            "Optional environment file of an existing PowerContext Server. In the embedded mode "
+            "the script derives a complete environment itself."
+        ),
+    )
     parser.add_argument("--scope", default=None, help="Scope title to delete and re-import")
     parser.add_argument("--artifacts", action="store_true", help="Delete the recorded artefacts")
     parser.add_argument("--worktree", action="store_true", help="Restore the pre-change sample")
     parser.add_argument("--database", action="store_true", help="Drop and recreate the database")
     parser.add_argument("--database-name", default=DEFAULT_DATABASE)
+    parser.add_argument(
+        "--storage",
+        choices=(STORAGE_DOCKER, STORAGE_EMBEDDED),
+        default=STORAGE_EMBEDDED,
+        help="Which store backs PowerContext: a seekdb container or the embedded seekdb.",
+    )
+    parser.add_argument(
+        "--seekdb-dir",
+        default=str(DEFAULT_SEEKDB_DIR),
+        help="Data directory of the embedded seekdb instance.",
+    )
+    parser.add_argument("--container", default=MYSQL_CONTAINER)
     parser.add_argument(
         "--prune-demo-scopes",
         action="store_true",
@@ -225,36 +348,70 @@ def main() -> int:
     args = parser.parse_args()
 
     project = Path(args.project).resolve()
+    seekdb_dir = Path(args.seekdb_dir).expanduser().resolve()
+    storage_args = {
+        "storage": args.storage,
+        "container": args.container,
+        "seekdb_dir": seekdb_dir,
+    }
     exit_code = 0
 
-    if args.list_scopes:
-        exit_code |= list_scopes(args.server_url)
+    # Dropping the embedded store means deleting the directory, so it has to
+    # happen while no server holds it.
+    if args.database and args.storage == STORAGE_EMBEDDED:
+        exit_code |= reset_database(args.database_name, **storage_args)
 
-    if args.all:
-        exit_code |= reset_worktree()
-        exit_code |= reset_artifacts()
-        if args.scope:
-            exit_code |= reset_scope(args.server_url, args.scope, project, args.database_name)
-    else:
-        if args.worktree:
-            exit_code |= reset_worktree()
-        if args.artifacts:
-            exit_code |= reset_artifacts()
-        if args.scope:
-            exit_code |= reset_scope(args.server_url, args.scope, project, args.database_name)
-
-    if args.prune_demo_scopes:
-        exit_code |= prune_demo_scopes(
-            args.server_url,
-            ("minimax-sdd-restart-proof-", "minimax-sdd-spec-revision-", "minimax-sdd-reset-demo"),
-            args.database_name,
+    server: ServerHandle | None = None
+    server_url = args.server_url
+    needs_server = bool(args.scope) or args.prune_demo_scopes or args.list_scopes
+    if needs_server and not server_url:
+        server = _start_managed_server(
+            storage=args.storage,
+            seekdb_dir=seekdb_dir,
+            port=args.port,
+            env_file=args.env_file,
         )
-        # The API probes left a throwaway "Probe" scope behind; removing it keeps
-        # the documented reproduction steps starting from a clean database.
-        exit_code |= prune_demo_scopes(args.server_url, ("Probe",), args.database_name)
+        server_url = f"http://127.0.0.1:{args.port}"
 
-    if args.database:
-        exit_code |= reset_database(args.database_name)
+    try:
+        if args.list_scopes and server_url:
+            exit_code |= list_scopes(server_url)
+
+        if args.all:
+            exit_code |= reset_worktree()
+            exit_code |= reset_artifacts()
+            if args.scope and server_url:
+                exit_code |= reset_scope(
+                    server_url, args.scope, project, args.database_name, **storage_args
+                )
+        else:
+            if args.worktree:
+                exit_code |= reset_worktree()
+            if args.artifacts:
+                exit_code |= reset_artifacts()
+            if args.scope and server_url:
+                exit_code |= reset_scope(
+                    server_url, args.scope, project, args.database_name, **storage_args
+                )
+
+        if args.prune_demo_scopes and server_url:
+            exit_code |= prune_demo_scopes(
+                server_url,
+                ("minimax-sdd-restart-proof-", "minimax-sdd-spec-revision-", "minimax-sdd-reset-demo"),
+                args.database_name,
+                **storage_args,
+            )
+            # The API probes left a throwaway "Probe" scope behind; removing it keeps
+            # the documented reproduction steps starting from a clean database.
+            exit_code |= prune_demo_scopes(
+                server_url, ("Probe",), args.database_name, **storage_args
+            )
+    finally:
+        if server is not None:
+            server.stop()
+
+    if args.database and args.storage != STORAGE_EMBEDDED:
+        exit_code |= reset_database(args.database_name, **storage_args)
 
     return 0 if exit_code == 0 else 1
 
