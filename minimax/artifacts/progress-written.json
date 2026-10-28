@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-10-28T15:32:15.268737+00:00",
+  "generated_at": "2026-10-28T16:00:59.450684+00:00",
   "entries": [
     {
-      "artifact_id": "art_9efbf4e29d884a38afedab6e1a4a0f7d",
+      "artifact_id": "art_e61a25b4f122436eb9dfcc0d6821be0e",
       "revision": 1,
       "kind": "progress",
-      "text": "已将 47 条 SDD 记录导入 PowerContext 作用域 scp_6d4rq92ngwcnzytn87ebhqyqr3 / imported 47 SDD records into scope scp_6d4rq92ngwcnzytn87ebhqyqr3",
+      "text": "已将 47 条 SDD 记录导入 PowerContext 作用域 scp_1jt2jpycesyed92ava1zv80gfb / imported 47 SDD records into scope scp_1jt2jpycesyed92ava1zv80gfb",
       "state": "active"
     },
     {
-      "artifact_id": "art_53f0e1c3229f4493b78c3e36c4b8a684",
+      "artifact_id": "art_8ceace8740704ba5a6148c8002f6064c",
       "revision": 1,
       "kind": "validation",
       "text": "改动前：20 个回归测试通过，6 个功能测试失败（促销码能力尚未实现） / pre-change: 20 regression tests pass, 6 functional tests fail",

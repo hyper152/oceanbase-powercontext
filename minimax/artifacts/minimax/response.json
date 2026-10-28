@@ -1,15 +1,15 @@
 {
   "schema": "sddctx.model-answer.v1",
-  "generated_at": "2026-10-28T15:32:20.075142+00:00",
+  "generated_at": "2026-10-28T16:01:03.200285+00:00",
   "status": "ok",
   "model": "MiniMax-M3.1-Flash",
   "origin": "session",
   "answer_file": "model\\SPEC-BILL-001-pricing.session-model.txt",
   "answer_sha256": "d67f92c20af366b16b964981c163622a45b8688250198b45547c66eeb24d3a03",
-  "prompt_sha256": "5e5624cbcf6f14e3ba9780f2355b3b438e8d25bf0123de028fc123ca5ac071c4",
-  "context_pack_sha256": "a504506cb9ceaa4af298be5006bfc85466bff148bd5f9e91c663ff287379021d",
+  "prompt_sha256": "9459cc244b8e9e7005a27c4350e664ec7bc56ae1759ebc54ae17dc940ac89d37",
+  "context_pack_sha256": "405dedf8dba31b4f5f95d5a6e0ed945fd058fe12480a6f6f7173fa815bd26134",
   "api_attempt": {
-    "generated_at": "2026-10-28T15:32:20.032645+00:00",
+    "generated_at": "2026-10-28T16:01:03.152941+00:00",
     "status": "failed",
     "model": "MiniMax-M3",
     "base_url": "https://api.minimaxi.com/v1",
@@ -23,7 +23,7 @@
         "message": "insufficient balance (1008)",
         "http_code": "402"
       },
-      "request_id": "0731488434bb3cc5a578b8e3bb78817a"
+      "request_id": "07314f3ff008a2f1ec22969922a1d928"
     }
   },
   "note": "The API key is never stored and the model's private reasoning trace is discarded. The digests bind this answer to the exact prompt and context pack it was produced from.",

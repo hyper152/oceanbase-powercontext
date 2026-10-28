@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-28T15:32:25.282640+00:00",
+  "generated_at": "2026-10-28T16:01:07.888726+00:00",
   "entries": [
     {
-      "artifact_id": "art_f6be5372c59044be9c809cc68a78213a",
+      "artifact_id": "art_f60a572ebfe04a3ea9a56873ae9c90e8",
       "revision": 1,
       "kind": "validation",
       "text": "改动后：全量测试通过（exit=0），回归测试与目标功能测试均通过 / post-change: full suite exit=0, regression and target functional suites pass",

@@ -88,7 +88,7 @@ cd minimax
 实际输出：
 
 ```
-ingested 47 records into scope scp_6d4rq92ngwcnzytn87ebhqyqr3
+ingested 47 records into scope scp_1jt2jpycesyed92ava1zv80gfb
 (12 spec sections, 9 code symbols, 26 test cases)
 ```
 
@@ -134,7 +134,7 @@ docker exec oceanbase-seekdb mysql -h127.0.0.1 -P2881 -uroot -N -e \
 
 ```
 Task: 为发票总价增加促销码折扣能力，先折扣后计税
-Scope: scp_6d4rq92ngwcnzytn87ebhqyqr3
+Scope: scp_1jt2jpycesyed92ava1zv80gfb
 Corpus records considered: 47
 Files to modify: src/billing/pricing.py
 
@@ -183,7 +183,7 @@ Files to modify: src/billing/pricing.py
 }
 ```
 
-**实际发生了什么**：脚本在独立作用域 `scp_66cw2vhn0j1g89xsc29p551pwk` 上把
+**实际发生了什么**：脚本在独立作用域 `scp_231m7gsqj1388vh6rkedgqzxgq` 上把
 `SPEC-BILL-001` 的促销码目录从 3 个码改为 4 个
 （新增 `SAVE30`）、把 `SAVE20` 的折扣上限从 100.00 改为 150.00、`version` 从 1 改为 2，
 重新导入后检索结果包含 `SAVE30`，而改动前的检索结果不包含。
@@ -248,8 +248,8 @@ sddctx:v1:spec_section:SPEC-BILL-001#促销码目录-promotion-catalog:2cf285316
 | 模型 | `MiniMax-M3.1-Flash`（本会话承载的 MiniMax 模型） |
 | 来源 | `model/SPEC-BILL-001-pricing.session-model.txt`（已提交入库） |
 | 回答摘要 | `answer_sha256 = d67f92c20af366b16b964981c163622a45b8688250198b45547c66eeb24d3a03` |
-| 提示词摘要 | `prompt_sha256 = 5e5624cbcf6f14e3ba9780f2355b3b438e8d25bf0123de028fc123ca5ac071c4` |
-| 上下文包摘要 | `context_pack_sha256 = a504506cb9ceaa4af298be5006bfc85466bff148bd5f9e91c663ff287379021d` |
+| 提示词摘要 | `prompt_sha256 = 9459cc244b8e9e7005a27c4350e664ec7bc56ae1759ebc54ae17dc940ac89d37` |
+| 上下文包摘要 | `context_pack_sha256 = 405dedf8dba31b4f5f95d5a6e0ed945fd058fe12480a6f6f7173fa815bd26134` |
 | 落库 diff | `artifacts/minimax/code.diff` |
 | 应用结果 | `artifacts/minimax/response.json`（`code_source: minimax-session-model`） |
 
@@ -279,7 +279,7 @@ sddctx:v1:spec_section:SPEC-BILL-001#促销码目录-promotion-catalog:2cf285316
       "message": "insufficient balance (1008)",
       "http_code": "402"
     },
-    "request_id": "0731488434bb3cc5a578b8e3bb78817a"
+    "request_id": "07314f3ff008a2f1ec22969922a1d928"
   }
 }
 ```
@@ -330,18 +330,18 @@ HTTP API 的失败被单独记录在 `api-attempt.json`，并原样附在被应�
 **实际输出**（`artifacts/e2e-steps.json` 与 `artifacts/tests/*.txt`）：
 
 ```
-[OK ] ingest corpus into PowerContext (exit=0) scope=scp_6d4rq92ngwcnzytn87ebhqyqr3 records=47 {'spec_section': 12, 'code_symbol': 9, 'test_case': 26}
+[OK ] ingest corpus into PowerContext (exit=0) scope=scp_1jt2jpycesyed92ava1zv80gfb records=47 {'spec_section': 12, 'code_symbol': 9, 'test_case': 26}
 [OK ] retrieve development context (exit=0) specs=12 code=7 functional=6 regression=20
-[OK ] write task progress into PowerContext (exit=0) artifacts=['art_9efbf4e29d884a38afedab6e1a4a0f7d', 'art_53f0e1c3229f4493b78c3e36c4b8a684']
-[FAIL] test suite before the change (exit=1) log=artifacts/tests/before.txt duration=1.64s code_sha256=6a69111712e47e79 git_commit=87da1afaf4bb dirty=false
-[OK ] regression suite before the change (exit=0) log=artifacts/tests/before-regression.txt duration=1.00s code_sha256=6a69111712e47e79 git_commit=87da1afaf4bb dirty=false
-[FAIL] target functional suite before the change (exit=1) log=artifacts/tests/before-functional.txt duration=1.11s code_sha256=6a69111712e47e79 git_commit=87da1afaf4bb dirty=false
+[OK ] write task progress into PowerContext (exit=0) artifacts=['art_e61a25b4f122436eb9dfcc0d6821be0e', 'art_8ceace8740704ba5a6148c8002f6064c']
+[FAIL] test suite before the change (exit=1) log=artifacts/tests/before.txt duration=1.32s code_sha256=6a69111712e47e79 git_commit=d505e92b4ee6 dirty=false
+[OK ] regression suite before the change (exit=0) log=artifacts/tests/before-regression.txt duration=0.85s code_sha256=6a69111712e47e79 git_commit=d505e92b4ee6 dirty=false
+[FAIL] target functional suite before the change (exit=1) log=artifacts/tests/before-functional.txt duration=0.88s code_sha256=6a69111712e47e79 git_commit=d505e92b4ee6 dirty=false
 [FAIL] MiniMax code generation (exit=4) error=insufficient balance (1008) code=1008 http=402
-[OK ] apply the session model answer to the working tree (exit=0) log=artifacts/tests/apply.txt duration=1.82s
-[OK ] test suite after the change (exit=0) log=artifacts/tests/after.txt duration=0.93s code_sha256=baf6875696275ace git_commit=87da1afaf4bb dirty=true
-[OK ] regression suite after the change (exit=0) log=artifacts/tests/after-regression.txt duration=1.01s code_sha256=baf6875696275ace git_commit=87da1afaf4bb dirty=true
-[OK ] target functional suite after the change (exit=0) log=artifacts/tests/after-functional.txt duration=0.96s code_sha256=baf6875696275ace git_commit=87da1afaf4bb dirty=true
-[OK ] write the after-change verification result into PowerContext (exit=0) artifact=art_f6be5372c59044be9c809cc68a78213a
+[OK ] apply the session model answer to the working tree (exit=0) log=artifacts/tests/apply.txt duration=1.68s
+[OK ] test suite after the change (exit=0) log=artifacts/tests/after.txt duration=0.90s code_sha256=baf6875696275ace git_commit=d505e92b4ee6 dirty=true
+[OK ] regression suite after the change (exit=0) log=artifacts/tests/after-regression.txt duration=0.84s code_sha256=baf6875696275ace git_commit=d505e92b4ee6 dirty=true
+[OK ] target functional suite after the change (exit=0) log=artifacts/tests/after-functional.txt duration=0.80s code_sha256=baf6875696275ace git_commit=d505e92b4ee6 dirty=true
+[OK ] write the after-change verification result into PowerContext (exit=0) artifact=art_f60a572ebfe04a3ea9a56873ae9c90e8
 [OK ] restore the pre-change working tree (exit=0) restored_trees=3
 [OK ] retrieve the context again with the stored progress (exit=0) prior_progress=3 specs=12 code=7 functional=6 regression=20
 ```
@@ -386,8 +386,8 @@ FAILED tests/test_pricing.py::test_promo_errors_are_pricing_errors - AttributeEr
 
 | | `src/billing/pricing.py` SHA-256 | git commit | 工作区 |
 | --- | --- | --- | --- |
-| 改动前 | `6a69111712e47e79ec9a207e7d7c4f33590b7fbf0ff1919d5d3505bbeb01b94c` | `87da1afaf4bb276d0fd6b0841d650a12fd831efe` | clean |
-| 改动后 | `baf6875696275ace7770ace5ae78f0224c27b1271d163ac0b1cb6bd911988210` | `87da1afaf4bb276d0fd6b0841d650a12fd831efe` | dirty（模型改动尚未提交） |
+| 改动前 | `6a69111712e47e79ec9a207e7d7c4f33590b7fbf0ff1919d5d3505bbeb01b94c` | `d505e92b4ee653d679661604393482eba868e6d9` | clean |
+| 改动后 | `baf6875696275ace7770ace5ae78f0224c27b1271d163ac0b1cb6bd911988210` | `d505e92b4ee653d679661604393482eba868e6d9` | dirty（模型改动尚未提交） |
 
 **代码快照**：`artifacts/snapshots/before/` 与 `artifacts/snapshots/after/`
 （`src/`、`specs/`、`tests/` 三棵目录树，不含 `__pycache__`）。
@@ -437,13 +437,13 @@ FAILED tests/test_pricing.py::test_promo_errors_are_pricing_errors - AttributeEr
 
 1. **空状态**：脚本使用自己的数据目录 `.runtime/seekdb-restart-proof`，
    运行前先整个删除（`storage.cold_start = true`），
-   再新建作用域 `scp_6bhfkc6vv9b769rxb5aj7qrwfn`，
+   再新建作用域 `scp_0b2j8whmv7v96tc4qagk3pstxf`，
    `POST /v1/memory/entries/list` 返回 `entry_count: 0`；
 2. **写入**：把任务进度与验证结果写入 Atomic Memory，
-   得到 `art_3428e17e8f724126bf4fd8818215f267`（progress）与
-   `art_f99e853010644f5696715f1b63b19c85`（verification），revision 均为 1；
+   得到 `art_7254b693348b4ed4807087e5c2789e09`（progress）与
+   `art_546f8ef9d90e4c628cf63e939dc114ca`（verification），revision 均为 1；
 3. **重启前读回**：2 条，artifact_id 与文本完全一致；
-4. **模块重启**：`SIGTERM` 结束 PowerContext Server 进程（PID 12560 → 3020），
+4. **模块重启**：`SIGTERM` 结束 PowerContext Server 进程（PID 24480 → 26180），
    再以同一环境文件重新启动，`service_instance_id` 随之改变；
    **嵌入式模式下这个数据目录由服务独占，进程退出时 seekdb 引擎一并停机，
    第二次启动是真正的冷启动**（不是挂到一个仍在运行的实例上）；
@@ -452,8 +452,8 @@ FAILED tests/test_pricing.py::test_promo_errors_are_pricing_errors - AttributeEr
    实际 SQL 结果，重启前后完全相同）：
 
 ```
-art_3428e17e8f724126bf4fd8818215f267	1	progress
-art_f99e853010644f5696715f1b63b19c85	1	verification
+art_7254b693348b4ed4807087e5c2789e09	1	progress
+art_546f8ef9d90e4c628cf63e939dc114ca	1	verification
 ```
 
 7. **复用**：重启后执行 `query`，上下文包中 `prior_progress` 带上这两条进度，

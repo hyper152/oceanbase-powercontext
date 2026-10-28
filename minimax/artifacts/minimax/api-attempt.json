@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-28T15:32:20.032645+00:00",
+  "generated_at": "2026-10-28T16:01:03.152941+00:00",
   "status": "failed",
   "model": "MiniMax-M3",
   "base_url": "https://api.minimaxi.com/v1",
@@ -13,6 +13,6 @@
       "message": "insufficient balance (1008)",
       "http_code": "402"
     },
-    "request_id": "0731488434bb3cc5a578b8e3bb78817a"
+    "request_id": "07314f3ff008a2f1ec22969922a1d928"
   }
 }

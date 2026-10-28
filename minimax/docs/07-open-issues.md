@@ -26,7 +26,7 @@
       "message": "insufficient balance (1008)",
       "http_code": "402"
     },
-    "request_id": "0731488434bb3cc5a578b8e3bb78817a"
+    "request_id": "07314f3ff008a2f1ec22969922a1d928"
   }
 }
 ```
@@ -56,8 +56,8 @@
   | 摘要 | 值 |
   | --- | --- |
   | `answer_sha256` | `d67f92c20af366b16b964981c163622a45b8688250198b45547c66eeb24d3a03` |
-  | `prompt_sha256` | `5e5624cbcf6f14e3ba9780f2355b3b438e8d25bf0123de028fc123ca5ac071c4` |
-  | `context_pack_sha256` | `a504506cb9ceaa4af298be5006bfc85466bff148bd5f9e91c663ff287379021d` |
+  | `prompt_sha256` | `9459cc244b8e9e7005a27c4350e664ec7bc56ae1759ebc54ae17dc940ac89d37` |
+  | `context_pack_sha256` | `405dedf8dba31b4f5f95d5a6e0ed945fd058fe12480a6f6f7173fa815bd26134` |
 
   > `answer_sha256` 固定不变（回答文件固定）；`prompt_sha256` 与
   > `context_pack_sha256` 随运行变化，因为上下文包里带有 `db_position`、
