@@ -478,6 +478,30 @@ prior_progress = [verification, progress]
 
 ## 要求 7 · 源码、依赖与版本、配置与初始化步骤、验证样例、预期结果、重置方法、技术使用记录、一页技术说明
 
+### 7.1 干净环境复现（从远端分支全新克隆后实测）
+
+本方案在提交之后做过一次**真正的干净环境复现**：把参赛分支从 GitHub
+全新克隆到空目录、新建虚拟环境、从 PyPI 安装 `powercontext` 与本方案，
+然后逐条执行四个脚本。实测结果：
+
+| 命令 | 耗时 | 结果 |
+| --- | --- | --- |
+| `reset.py --database --storage embedded` | < 1s | 删除嵌入式存储目录 |
+| `reset.py --scope minimax-sdd --storage embedded` | 3m24s | 首次建表 + 重新导入 47 条 |
+| `run_e2e.py --storage embedded` | 1m32s | 14 步，退出码与本机完全一致 |
+| `prove_restart_persistence.py --storage embedded` | 2m39s | 4 项检查全部 PASS |
+| `prove_spec_revision.py --storage embedded` | 2m10s | 9 项检查全部 PASS |
+
+干净环境里 `run_e2e.py` 的退出码与本机逐条相同：改前 `6 failed, 20 passed`、
+目标功能 `6 failed`、回归 `20 passed`，改后 `26 passed` / `6 passed` / `20 passed`，
+MiniMax HTTP API 仍是真实的 402。
+
+> 首次建表的 2~3 分钟是 seekdb 建 61 张表的固有开销，只在数据目录为空时出现一次。
+> 这一轮复现同时暴露并修复了三个问题（健康检查走代理、就绪超时过短、
+> 日志文件被占用），细节见 `docs/07-open-issues.md` §4。
+
+### 7.2 交付物索引
+
 | 内容 | 位置 |
 | --- | --- |
 | 完整源码 | `minimax/sddctx/`、`minimax/sample/`、`minimax/scripts/`、`minimax/reference/` |

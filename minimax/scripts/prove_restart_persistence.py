@@ -41,7 +41,7 @@ from server_runtime import (  # noqa: E402
     build_server_env,
     parse_env_file,
     port_is_free,
-    write_env_file,
+    start_server,
 )
 
 RUNTIME_DIR = MINIMAX_DIR / ".runtime"
@@ -107,17 +107,8 @@ async def main_async(args: argparse.Namespace) -> int:
     base_env: dict[str, str] = {}
     if args.env_file:
         base_env = parse_env_file(Path(args.env_file).expanduser().resolve())
-    env = build_server_env(
-        storage=args.storage,
-        seekdb_dir=seekdb_dir,
-        port=args.port,
-        home=RUNTIME_DIR / "home-restart-proof",
-        base_env=base_env,
-    )
-    env_file = write_env_file(env, RUNTIME_DIR / "server-restart-proof.env")
+    env_file = RUNTIME_DIR / "server-restart-proof.env"
     log_path = RUNTIME_DIR / "server-restart-proof.log"
-    if log_path.exists():
-        log_path.unlink()
 
     # The embedded store has to start empty, otherwise "the scope was empty"
     # would be a statement about a fresh scope inside a populated database.
@@ -144,9 +135,24 @@ async def main_async(args: argparse.Namespace) -> int:
         return 1
 
     # -- first boot ---------------------------------------------------------
-    server = ServerHandle(env_file, args.port, log_path)
-    server.start()
-    info_before = server.wait_ready()
+    server = start_server(
+        storage=args.storage,
+        seekdb_dir=seekdb_dir,
+        port=args.port,
+        env_file=env_file,
+        log_path=log_path,
+        home=RUNTIME_DIR / "home-restart-proof",
+        base_env=base_env,
+        recreate_store=True,
+    )
+    env = build_server_env(
+        storage=args.storage,
+        seekdb_dir=seekdb_dir,
+        port=args.port,
+        home=RUNTIME_DIR / "home-restart-proof",
+        base_env=base_env,
+    )
+    info_before = server.server_info()
     record(
         "start-server-1",
         f"powercontext server run --env-file {env_file} --port {args.port}",

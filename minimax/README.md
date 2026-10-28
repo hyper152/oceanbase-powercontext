@@ -138,6 +138,11 @@ cd minimax
 > 容器模式把 `--storage embedded` 换成 `--storage docker`（可选 `--env-file` 指定
 > 自己的服务环境）；复用常驻服务则额外传 `--server-url http://127.0.0.1:8010`。
 
+> **首次运行请留出时间**：嵌入式模式下，空数据目录上的第一次启动要建 61 张表，
+> 实测约 2~3 分钟才就绪（之后都是秒级）。请勿中途 Ctrl+C——
+> 被打断的建表会让数据目录停在 `recovery_required` 状态。
+> 干净环境复现的实测耗时见 [`docs/03-verification.md`](docs/03-verification.md) §7.1。
+
 最近一次实际运行结果（`artifacts/e2e-steps.json`，14 步）：
 
 | 步骤 | 退出码 |

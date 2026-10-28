@@ -38,10 +38,9 @@ from sddctx.sqlprobe import STORAGE_DOCKER, STORAGE_EMBEDDED, run_sql  # noqa: E
 from sddctx.store import PowerContextStore, build_client  # noqa: E402
 from server_runtime import (  # noqa: E402
     ServerHandle,
-    build_server_env,
     parse_env_file,
     port_is_free,
-    write_env_file,
+    start_server,
 )
 
 RUNTIME_DIR = MINIMAX_DIR / ".runtime"
@@ -110,20 +109,16 @@ async def main_async(args: argparse.Namespace) -> int:
         base_env: dict[str, str] = {}
         if args.env_file:
             base_env = parse_env_file(Path(args.env_file).expanduser().resolve())
-        env = build_server_env(
+        server = start_server(
             storage=args.storage,
             seekdb_dir=Path(args.seekdb_dir).expanduser().resolve(),
             port=args.port,
+            env_file=RUNTIME_DIR / "server-spec-revision.env",
+            log_path=RUNTIME_DIR / "server-spec-revision.log",
             home=RUNTIME_DIR / "home-spec-revision",
             base_env=base_env,
+            recreate_store=True,
         )
-        env_file = write_env_file(env, RUNTIME_DIR / "server-spec-revision.env")
-        log_path = RUNTIME_DIR / "server-spec-revision.log"
-        if log_path.exists():
-            log_path.unlink()
-        server = ServerHandle(env_file, args.port, log_path)
-        server.start()
-        server.wait_ready()
         server_url = f"http://127.0.0.1:{args.port}"
 
     try:

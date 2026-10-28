@@ -37,10 +37,9 @@ from sddctx.sqlprobe import (  # noqa: E402
 from sddctx.store import PowerContextStore, build_client  # noqa: E402
 from server_runtime import (  # noqa: E402
     ServerHandle,
-    build_server_env,
     parse_env_file,
     port_is_free,
-    write_env_file,
+    start_server,
 )
 
 SAMPLE_DIR = ROOT / "sample"
@@ -284,21 +283,15 @@ def _start_managed_server(
     base_env: dict[str, str] = {}
     if env_file:
         base_env = parse_env_file(Path(env_file).expanduser().resolve())
-    env = build_server_env(
+    return start_server(
         storage=storage,
         seekdb_dir=seekdb_dir,
         port=port,
+        env_file=ROOT / ".runtime" / "server.env",
+        log_path=ROOT / ".runtime" / "server.log",
         home=ROOT / ".runtime" / "home",
         base_env=base_env,
     )
-    target = write_env_file(env, ROOT / ".runtime" / "server.env")
-    log_path = ROOT / ".runtime" / "server.log"
-    if log_path.exists():
-        log_path.unlink()
-    server = ServerHandle(target, port, log_path)
-    server.start()
-    server.wait_ready()
-    return server
 
 
 def main() -> int:

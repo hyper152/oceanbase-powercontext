@@ -206,7 +206,81 @@ cursor.execute("COMMIT")
 
 ---
 
-## 4. 参考实现的定位（不是本轮的代码来源）
+## 4. 干净环境复现暴露的三个问题（均已修复）
+
+为了验证「换一台机器就能复现」，本方案在提交之后做了一次**真正的干净环境复现**：
+把参赛分支从 GitHub 全新克隆到空目录，新建虚拟环境，
+从 PyPI 安装 `powercontext` 与本方案，然后逐条跑四个脚本。
+这一步暴露了三个只有在「本机之外」才会出现的问题。
+
+### 4.1 健康检查走了 HTTP 代理，把活着的服务判成「没起来」
+
+本机设置了 `HTTP_PROXY` / `HTTPS_PROXY`，而 `urllib.request` 默认会使用它们。
+于是脚本访问 `http://127.0.0.1:8010/v1/server-info` 时，请求被转发给代理，
+代理连不上本机端口，返回：
+
+```
+RuntimeError: PowerContext Server was not ready in 90.0s: HTTP Error 502: Bad Gateway
+```
+
+服务其实好好地在跑，是检查方式不对。
+（PowerContext 官方 SDK 本身已经处理了这个问题——它明确让回环流量不经过环境代理；
+只有本方案自己写的健康检查漏掉了。）
+
+**修复**：健康检查改用不带代理的 opener：
+
+```python
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+```
+
+### 4.2 首次建表要两分钟，90 秒超时把启动打断成「损坏状态」
+
+空数据目录上的第一次启动要建 61 张表，实测约 **120 秒**才 ready。
+原先 90 秒的超时会在建表途中放弃，把服务杀掉，
+数据目录因此留在 `recovery_required` 状态，之后每次启动都直接失败：
+
+```
+powercontext.builtin.persistence.migrations.server_readiness.MigrationError:
+recovery_required: Stop writers and run powercontext server db-migrate apply before startup.
+```
+
+**修复**：就绪超时放宽到 300 秒（`DEFAULT_READY_TIMEOUT`）；
+另外给「拥有自己数据目录」的两个证明脚本加了自动恢复：
+遇到 `recovery_required` 就删掉目录重来一次。
+共享数据目录的脚本不自动删除，改为给出可操作的提示：
+
+```
+If the log mentions 'recovery_required', the store was left in a state that refuses to start:
+delete the data directory (scripts/reset.py --database --storage embedded) or apply the
+pending migration with 'powercontext server db-migrate apply --env-file <file>'.
+```
+
+### 4.3 服务刚停，日志文件仍被占用，删除日志导致崩溃
+
+Windows 上上一个服务进程还没完全释放日志文件时，删除它会抛
+`PermissionError: [WinError 32] The process cannot access the file ...`，
+第二次运行直接崩在启动之前。
+
+**修复**：日志删除改为「删不掉就算了」——旧日志留着无害。
+
+### 4.4 修复后的干净环境复现结果
+
+重新克隆、全新虚拟环境、从 PyPI 安装后逐条执行：
+
+| 命令 | 耗时 | 结果 |
+| --- | --- | --- |
+| `reset.py --database --storage embedded` | < 1s | 删除嵌入式存储目录 |
+| `reset.py --scope minimax-sdd --storage embedded` | 3m24s | 首次建表 + 重新导入 47 条 |
+| `run_e2e.py --storage embedded` | 1m32s | 14 步，退出码与本机一致（改前 `6 failed, 20 passed` → 改后 `26 passed`） |
+| `prove_restart_persistence.py --storage embedded` | 2m39s | 4 项检查全部 PASS |
+| `prove_spec_revision.py --storage embedded` | 2m10s | 9 项检查全部 PASS |
+
+> 首次建表的 2～3 分钟是 seekdb 建 61 张表的固有开销，只在数据目录为空时出现一次；
+> 之后的运行都是秒级。评审复现时请留出这段时间，不要中途 Ctrl+C。
+
+---
+
+## 5. 参考实现的定位（不是本轮的代码来源）
 
 `minimax/reference/pricing_promo.py` 是**手写**的 `SPEC-BILL-001` 参考实现。
 **本轮没有被应用**——本轮「改动后」的代码来自 MiniMax 模型。
@@ -237,7 +311,7 @@ cursor.execute("COMMIT")
 
 ---
 
-## 5. 其它已知限制
+## 6. 其它已知限制
 
 | 限制 | 影响 | 缓解 |
 | --- | --- | --- |
@@ -251,7 +325,7 @@ cursor.execute("COMMIT")
 
 ---
 
-## 6. 干净环境复现清单
+## 7. 干净环境复现清单
 
 从零开始复现（不依赖本机任何既有文件或数据库状态）：
 
@@ -286,6 +360,7 @@ mkdir -p minimax/.runtime
 cd minimax
 
 # 4a. 清空存储，从空状态开始
+#     注意：第一次启动要在空目录上建 61 张表，实测约 2~3 分钟，请勿中途 Ctrl+C
 .venv/Scripts/python.exe scripts/reset.py --database --storage embedded
 .venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage embedded
 
