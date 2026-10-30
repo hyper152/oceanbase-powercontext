@@ -1,0 +1,4 @@
+# The end-to-end launcher is a POSIX shell script. A CRLF shebang makes
+# "bash scripts/run_all.sh" fail on the Linux image the reviewer runs on,
+# so shell scripts are pinned to LF no matter which platform commits them.
+*.sh text eol=lf
