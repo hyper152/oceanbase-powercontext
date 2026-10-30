@@ -54,9 +54,30 @@ from server_runtime import (  # noqa: E402
     start_server,
 )
 
-PYTHON = str(ROOT / ".venv" / "Scripts" / "python.exe")
-if not Path(PYTHON).exists():
-    PYTHON = sys.executable
+def _resolve_python() -> str:
+    """Return the interpreter that owns the virtual environment.
+
+    The reviewer may run this on Windows, Linux or macOS, and a virtual
+    environment lays its interpreter out differently on each of them.  When no
+    virtual environment is present the interpreter that started this script is
+    used, because it already has the project installed.  ``SDDCTX_PYTHON``
+    overrides the search, which is how a reviewer can point the run at a
+    virtual environment that lives outside the repository.
+    """
+    override = os.environ.get("SDDCTX_PYTHON")
+    if override:
+        return override
+    for candidate in (
+        ROOT / ".venv" / "Scripts" / "python.exe",
+        ROOT / ".venv" / "bin" / "python",
+        ROOT / ".venv" / "bin" / "python3",
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+PYTHON = _resolve_python()
 TARGET_FILE = "src/billing/pricing.py"
 
 

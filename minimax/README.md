@@ -31,6 +31,7 @@ minimax/
 ├── reference/           # SPEC-BILL-001 的手写参考实现（离线兜底，非模型产出）
 ├── scripts/             # 端到端验证 · 重启持久化验证 · 规格修订验证 · 重置
 │   ├── server_runtime.py#   验证脚本共用的服务运行时（按存储模式派生环境、启停服务）
+│   ├── run_all.sh      #   一条命令跑完全部四条验证（跨平台，自动找虚拟环境）
 │   ├── run_e2e.py       #   导入 → 检索 → 调模型 → 应用改动 → 前后测试 → 复用进度
 │   ├── prove_restart_persistence.py  # 空状态写入 → 冷重启 → 读回 → 复用
 │   ├── prove_spec_revision.py        # 改规格 → 重新导入 → 上下文用新内容
@@ -44,31 +45,55 @@ minimax/
 
 ---
 
+## 提交与判题信息
+
+| 项 | 值 |
+| --- | --- |
+| 仓库 | `https://github.com/hyper152/oceanbase-powercontext`（私有仓库，平台按带 token 的地址拉取） |
+| 分支 | **`2026-competition-ecosystem`** |
+| 资产目录 | `minimax/` |
+| 基线 | 官方 `oceanbase/powercontext` 的 `2026-competition-ecosystem`（`d647275c`） |
+
+按官方《比赛仓库地址》表，MiniMax 赛题对应的分支是 `2026-competition-ecosystem`；
+把官方仓库导入私有仓库后会得到一个**同名分支**，本作品即在该同名分支上开发。
+`competition/minimax` 是同一提交的别名（内容与 `2026-competition-ecosystem` 完全一致），
+两个分支名都指向同一 commit，填任意一个都能拉到本作品。
+
+---
+
 ## 快速开始
 
 ### 0. 两种仓库形态
 
-本参赛分支 `competition/minimax` 只包含 `minimax/` 目录；合并进官方
-`2026-competition-ecosystem` 后，仓库根目录会同时包含 PowerContext 官方源码
-（根目录有 `pyproject.toml`）。两种形态的安装命令不同，见
-[`docs/01-setup.md`](docs/01-setup.md)。
+本参赛分支基于官方 `2026-competition-ecosystem`，只包含 `minimax/` 目录；
+仓库根目录**没有**安装文件，因此 PowerContext 需从 PyPI 安装。
+若把本分支合并进官方完整仓库（根目录有 `pyproject.toml`），则 PowerContext 可改用本仓库源码安装。
+两种形态的安装命令不同，见 [`docs/01-setup.md`](docs/01-setup.md)。
 
-### 1. Python 环境与依赖
+### 1. Python 环境与依赖（Windows / Linux / macOS 通用）
 
 ```bash
-cd PowerContext-minimax
+cd minimax
 
-uv venv --python 3.12 minimax/.venv
+# 创建虚拟环境（三个平台命令相同）
+uv venv --python 3.12 .venv
 
-# 参赛分支（稀疏仓库）：从 PyPI 安装 PowerContext，同时以可编辑模式安装 sddctx
-uv pip install --python minimax/.venv/Scripts/python.exe -e "./minimax[server,seekdb,dev]"
+# 激活虚拟环境，让 python / powercontext 命令可用
+. .venv/bin/activate              # Linux / macOS
+# . .venv/Scripts/activate         # Windows Git Bash
+# .venv\Scripts\activate           # Windows PowerShell / CMD
 
-# 合并后的完整仓库：PowerContext 来自本仓库源码
-uv pip install --python minimax/.venv/Scripts/python.exe -e . -e "./minimax[server,seekdb,dev]"
+# 安装依赖：sddctx 以可编辑模式安装，extras 负责从 PyPI 拉 PowerContext 与嵌入式 seekdb
+uv pip install -e ".[server,seekdb,dev]"
 ```
 
-> `uv pip install ... -e .`（仓库根目录）只在**完整仓库**里可用；
-> 参赛分支的仓库根目录没有安装文件，必须指向 `./minimax`。
+> 在 `minimax/` 目录里执行时，`uv pip install` 会自动使用刚建的 `minimax/.venv`。
+> 也可以显式指定解释器（路径随平台不同）：
+> `uv pip install --python .venv/bin/python -e ".[server,seekdb,dev]"`（Linux / macOS）、
+> `uv pip install --python .venv/Scripts/python.exe -e ".[server,seekdb,dev]"`（Windows）。
+>
+> **合并进官方完整仓库后**：PowerContext 改用本仓库源码，在仓库根目录再执行一次
+> `uv pip install -e .`，其余命令不变。
 
 ### 2. 数据库（OceanBase seekdb）
 
@@ -98,15 +123,15 @@ cp minimax/env/server.embedded-seekdb.env.example minimax/.runtime/server.env
 ### 4. 启动 PowerContext Server（可选）
 
 ```bash
-minimax/.venv/Scripts/powercontext.exe server run --env-file minimax/.runtime/server.env
+powercontext server run --env-file minimax/.runtime/server.env
 ```
 
 ### 5. 导入 + 检索
 
 ```bash
 cd minimax
-.venv/Scripts/python.exe -m sddctx ingest --project sample
-.venv/Scripts/python.exe -m sddctx query --task "为发票总价增加促销码折扣能力，先折扣后计税"
+python -m sddctx ingest --project sample
+python -m sddctx query --task "为发票总价增加促销码折扣能力，先折扣后计税"
 ```
 
 完整的依赖版本、配置项与初始化步骤见 [`docs/01-setup.md`](docs/01-setup.md)。
@@ -115,26 +140,42 @@ cd minimax
 
 ## 验证
 
-四条命令各自独立，每条都会自行启停 PowerContext Server，**不需要预先启动服务**：
+四条命令各自独立，每条都会自行启停 PowerContext Server，**不需要预先启动服务**。
+
+**一条命令跑完全部四条**（推荐评审使用）：
+
+```bash
+cd minimax
+bash scripts/run_all.sh              # 默认嵌入式 seekdb，无需 Docker
+bash scripts/run_all.sh docker       # 改用容器模式 seekdb
+```
+
+`scripts/run_all.sh` 会自动定位虚拟环境解释器（`.venv/bin/python` 或 `.venv/Scripts/python.exe`），
+因此在 Linux、macOS、Windows（Git Bash）上都能直接运行。
+
+也可以逐条执行：
 
 ```bash
 cd minimax
 
 # 0) 清理上一个作用域并重新导入（保证从已知状态开始）
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage embedded
+python scripts/reset.py --scope minimax-sdd --storage embedded
 
 # 1) 端到端：导入 → 检索 → 调模型 → 应用改动 → 前后测试 → 复用进度
-.venv/Scripts/python.exe scripts/run_e2e.py --storage embedded \
+python scripts/run_e2e.py --storage embedded \
     --model-answer model/SPEC-BILL-001-pricing.session-model.txt \
     --model-id "MiniMax-M3.1-Flash"
 
 # 2) 重启持久化：空状态写入 → 冷重启（连存储引擎一起停） → 读回 → 复用
-.venv/Scripts/python.exe scripts/prove_restart_persistence.py --storage embedded
+python scripts/prove_restart_persistence.py --storage embedded
 
 # 3) 规格修订：改规格 → 重新导入 → 上下文用新内容
-.venv/Scripts/python.exe scripts/prove_spec_revision.py --storage embedded
+python scripts/prove_spec_revision.py --storage embedded
 ```
 
+> 若不激活虚拟环境，把上面的 `python` 换成对应路径的完整解释器即可
+> （Linux / macOS：`.venv/bin/python`；Windows：`.venv/Scripts/python.exe`）。
+>
 > 容器模式把 `--storage embedded` 换成 `--storage docker`（可选 `--env-file` 指定
 > 自己的服务环境）；复用常驻服务则额外传 `--server-url http://127.0.0.1:8010`。
 

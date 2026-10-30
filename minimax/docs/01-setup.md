@@ -1,12 +1,16 @@
 # 01 · 环境搭建与配置 (Setup, dependencies and configuration)
 
-本文给出从零开始复现本方案的完整步骤。
+本文给出从零开始复现本方案的完整步骤。**所有命令在 Windows、Linux、macOS 上通用**：
+唯一的差别是虚拟环境里解释器的路径（`.venv/bin/python` 与 `.venv/Scripts/python.exe`），
+本文统一用「先激活虚拟环境、再用 `python`」的写法，避开这个差别。
 
-> **先看这里**：本参赛分支 `competition/minimax` 只包含 `minimax/` 子目录，
-> **仓库根目录没有 `pyproject.toml`**。因此
-> `uv pip install ... -e .`（根目录）在参赛分支上**必然失败**，
-> 必须指向 `./minimax`；只有合并进官方 `2026-competition-ecosystem`
-> （仓库根目录含 PowerContext 官方源码）之后，根目录的 `-e .` 才可用。
+> **先看这里**：按官方《比赛仓库地址》表，MiniMax 赛题的提交分支是
+> **`2026-competition-ecosystem`**，本作品即在该同名分支上开发
+> （`competition/minimax` 是同一提交的别名）。
+> 该分支只包含 `minimax/` 子目录，**仓库根目录没有 `pyproject.toml`**，
+> 因此 `uv pip install ... -e .`（根目录）在这条分支上**必然失败**，
+> 必须安装 `./minimax`；只有合并进官方完整仓库（根目录含 PowerContext 官方源码）之后，
+> 根目录的 `-e .` 才可用。
 
 ---
 
@@ -16,7 +20,7 @@
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| 操作系统 | Windows 11 10.0.26200 (x64) | 也可在 Linux / macOS 上复现 |
+| 操作系统 | Windows 11 10.0.26200 (x64) | 本仓库产物即在此环境产出；同样可在 Linux / macOS 上复现，下面的命令不区分平台 |
 | Python | 3.12.14 | 由 `uv` 创建的虚拟环境 `minimax/.venv` |
 | uv | 0.12.15 | 虚拟环境与依赖安装工具 |
 | PowerContext | `1.4.1`（PyPI）／`1.4.1.dev181+gee6f45acb`（仓库源码） | 上下文存储服务与官方 Python SDK |
@@ -72,7 +76,7 @@
 完整清单：
 
 ```bash
-uv pip list --python minimax/.venv/Scripts/python.exe
+uv pip list                      # 已激活虚拟环境时直接可用
 ```
 
 ---
@@ -82,16 +86,24 @@ uv pip list --python minimax/.venv/Scripts/python.exe
 ### 2.1 创建虚拟环境
 
 ```bash
-cd PowerContext-minimax
+# 在仓库根目录执行（本文所有路径都以仓库根目录为基准）
 uv venv --python 3.12 minimax/.venv
 ```
 
 ### 2.2 安装依赖
 
-**参赛分支（稀疏仓库，根目录没有安装文件）**：
+**先激活虚拟环境**，之后所有命令里的 `python` / `powercontext` 都指向它：
 
 ```bash
-uv pip install --python minimax/.venv/Scripts/python.exe -e "./minimax[server,seekdb,dev]"
+. minimax/.venv/bin/activate              # Linux / macOS
+# . minimax/.venv/Scripts/activate         # Windows Git Bash
+# minimax\.venv\Scripts\activate           # Windows PowerShell / CMD
+```
+
+**参赛分支（根目录没有安装文件）**：
+
+```bash
+uv pip install -e "./minimax[server,seekdb,dev]"
 ```
 
 这条命令做两件事：
@@ -100,26 +112,36 @@ uv pip install --python minimax/.venv/Scripts/python.exe -e "./minimax[server,se
 * `[server]` 拉入 PowerContext Server 及其 CLI 依赖（`powercontext[server,cli]`），
   `[seekdb]` 拉入嵌入式 seekdb 绑定，`[dev]` 拉入 pytest。
 
+已激活虚拟环境时 `uv pip install` 会自动使用它；也可以显式指定解释器
+（路径随平台不同）：
+
+```bash
+# Linux / macOS
+uv pip install --python minimax/.venv/bin/python -e "./minimax[server,seekdb,dev]"
+# Windows
+uv pip install --python minimax/.venv/Scripts/python.exe -e "./minimax[server,seekdb,dev]"
+```
+
 **合并后的完整仓库**（仓库根目录含 PowerContext 官方源码）：
 
 ```bash
-uv pip install --python minimax/.venv/Scripts/python.exe -e . -e "./minimax[server,seekdb,dev]"
+uv pip install -e .
 ```
 
 此时 `powercontext` 指向本仓库源码（`1.4.1.dev181+gee6f45acb`），
 `import powercontext` 与 `powercontext` 命令都指向 `src/powercontext`。
 
 > **网络说明**：若 `pypi.org` 不可达，改用镜像源，例如
-> `uv pip install --python minimax/.venv/Scripts/python.exe -e "./minimax[server,seekdb,dev]" --index-url https://mirrors.aliyun.com/pypi/simple/`
+> `uv pip install -e "./minimax[server,seekdb,dev]" --index-url https://mirrors.aliyun.com/pypi/simple/`
 > （`mirrors.cloud.tencent.com/pypi/simple/` 同样可用）。
 
 安装完成后校验：
 
 ```bash
-minimax/.venv/Scripts/python.exe -c "from importlib.metadata import version; print(version('powercontext'), version('sddctx'))"
+python -c "from importlib.metadata import version; print(version('powercontext'), version('sddctx'))"
 # 1.4.1 0.1.0
-minimax/.venv/Scripts/powercontext.exe --help
-minimax/.venv/Scripts/python.exe -m sddctx --help
+powercontext --help
+python -m sddctx --help
 ```
 
 ### 2.3 准备数据库 (seekdb)
@@ -200,8 +222,7 @@ POWERCONTEXT_HOME=<绝对路径>/minimax/.runtime/home
 启动：
 
 ```bash
-minimax/.venv/Scripts/powercontext.exe server run \
-  --env-file minimax/.runtime/server.env
+powercontext server run --env-file minimax/.runtime/server.env
 ```
 
 校验：
@@ -230,6 +251,12 @@ $env:MINIMAX_API_KEY="<your-key>"         # PowerShell
 `minimax/sddctx/minimax_client.py` 的 `resolve_api_key()` 依次读取进程环境变量与
 Windows 用户注册表 `HKCU\Environment\MINIMAX_API_KEY`，**从不**把密钥写入日志或产物。
 
+> **复现时可以不配密钥**：四个验证脚本跑的是**已提交的会话内模型回答**
+> （`minimax/model/SPEC-BILL-001-pricing.session-model.txt`）。
+> 没有密钥时，HTTP API 调用这一步会失败并被如实记录成一步退出码 4，
+> 其余步骤（导入、检索、改动前后测试、状态落库与复用）不受影响，
+> 整条流水线仍能跑通。有密钥且额度可用时，同一条流水线会改由 API 直接产出代码。
+
 可选环境变量：
 
 | 变量 | 默认值 | 说明 |
@@ -243,7 +270,7 @@ Windows 用户注册表 `HKCU\Environment\MINIMAX_API_KEY`，**从不**把密钥
 
 ```bash
 cd minimax
-.venv/Scripts/python.exe -m sddctx ingest --project sample \
+python -m sddctx ingest --project sample \
   --json artifacts/ingest-report.json
 ```
 
@@ -268,10 +295,15 @@ ingested 47 records into scope scp_... (12 spec sections, 9 code symbols, 26 tes
 | 调用 MiniMax 生成代码 | `python -m sddctx minimax --task "..." --apply` |
 | 给模型回答盖上出处戳 | `python -m sddctx record-answer --answer <file> --model <id> --out <file>` |
 | 应用已保存的模型回答 | `python -m sddctx apply --response artifacts/minimax/response.json --project sample` |
+| **一条命令跑完全部验证** | `bash scripts/run_all.sh`（嵌入式）／`bash scripts/run_all.sh docker`（容器） |
 | 端到端验证 | `python scripts/run_e2e.py --storage embedded` |
 | 重启持久化验证 | `python scripts/prove_restart_persistence.py --storage embedded` |
 | 规格修订验证 | `python scripts/prove_spec_revision.py --storage embedded` |
 | 重置 | `python scripts/reset.py --all --storage embedded` |
+
+> 上表中的 `python` 指虚拟环境里的解释器。`scripts/run_all.sh` 会自己找
+> `.venv/bin/python` 或 `.venv/Scripts/python.exe`，不需要激活环境；
+> 也可用 `SDDCTX_PYTHON=/path/to/python bash scripts/run_all.sh` 指定别的解释器。
 
 `--server-url`（PowerContext Server 地址）默认为**空**：为空时脚本自行启动并
 停止一个服务；填上地址则复用该服务。`sddctx` 的子命令与 `--scope-title`

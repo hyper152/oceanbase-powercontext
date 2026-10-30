@@ -12,20 +12,35 @@
 ```bash
 cd minimax
 
+# 一条命令跑完全部四条验证（脚本自动定位虚拟环境解释器）
+bash scripts/run_all.sh
+```
+
+逐条执行（`python` 指虚拟环境里的解释器）：
+
+> **关于命令里的解释器路径**：本文各章节引用的命令是**本机实际执行**的原始记录，
+> 当时的环境是 Windows 11，解释器写作 `.venv/Scripts/python.exe`。
+> 在 Linux / macOS 上复现时，把它换成 `.venv/bin/python`
+> （或先激活虚拟环境后直接写 `python`）即可，**其余参数完全相同**。
+> 本机实测记录见 `docs/03-verification.md` §7.1（全新虚拟环境复测）。
+
+```bash
+cd minimax
+
 # 0) 清空嵌入式存储并重建作用域，保证从已知状态开始
-.venv/Scripts/python.exe scripts/reset.py --database --storage embedded
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage embedded
+python scripts/reset.py --database --storage embedded
+python scripts/reset.py --scope minimax-sdd --storage embedded
 
 # 1) 主流程（含模型调用、改动前后测试、进度落库）
-.venv/Scripts/python.exe scripts/run_e2e.py --storage embedded \
+python scripts/run_e2e.py --storage embedded \
     --model-answer model/SPEC-BILL-001-pricing.session-model.txt \
     --model-id "MiniMax-M3.1-Flash"
 
 # 2) 重启持久化
-.venv/Scripts/python.exe scripts/prove_restart_persistence.py --storage embedded
+python scripts/prove_restart_persistence.py --storage embedded
 
 # 3) 规格修订
-.venv/Scripts/python.exe scripts/prove_spec_revision.py --storage embedded
+python scripts/prove_spec_revision.py --storage embedded
 ```
 
 > 验证脚本的服务环境由 `scripts/server_runtime.py` 按 `--storage` 自动派生：
@@ -499,6 +514,24 @@ MiniMax HTTP API 仍是真实的 402。
 > 首次建表的 2~3 分钟是 seekdb 建 61 张表的固有开销，只在数据目录为空时出现一次。
 > 这一轮复现同时暴露并修复了三个问题（健康检查走代理、就绪超时过短、
 > 日志文件被占用），细节见 `docs/07-open-issues.md` §4。
+
+### 7.1.1 全新虚拟环境实测（跨平台运行说明的形式）
+
+平台按官方《比赛仓库地址》表以 `2026-competition-ecosystem` 分支拉取本作品，
+评审机大概率是 Linux。为此运行说明改写为**跨平台**形式（激活虚拟环境后统一用 `python`），
+并新增 `scripts/run_all.sh` 一键入口。该形式在一个**全新虚拟环境**中实测通过：
+
+| 步骤 | 命令 | 实测结果 |
+| --- | --- | --- |
+| 建环境 | `uv venv --python 3.12 <新目录>` | CPython 3.12.14 |
+| 装依赖 | `cd minimax && uv pip install -e ".[server,seekdb,dev]"` | 13s；含 `powercontext` 1.4.1、`pylibseekdb` 1.4.0.post2、`pytest` 9.2.0 |
+| 入口自检 | `python -m sddctx --help` / `powercontext --help` / `python -m pytest --version` | 三者均可用 |
+| 起服务 | `scripts/server_runtime.py` 派生嵌入式 seekdb 环境并启动 | READY（全新数据目录） |
+| 导入 | `python -m sddctx ingest --project sample` | rc=0，`ingested 47 records into scope scp_... (12 spec sections, 9 code symbols, 26 test cases)` |
+| 检索 | `python -m sddctx query --task "为发票总价增加促销码折扣能力，先折扣后计税"` | rc=0，返回规格 / 待改符号 / 功能测试 / 回归测试，每条带 `file_sha256` 与 `server_digest` |
+
+从建服务到检索完成共 1m39s（其中绝大部分是全新嵌入式目录建 61 张表）。
+该次运行使用的解释器完全来自新建的虚拟环境，不依赖本机任何既有状态。
 
 ### 7.2 交付物索引
 

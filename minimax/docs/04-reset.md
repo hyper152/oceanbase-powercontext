@@ -3,8 +3,14 @@
 本方案的所有状态都落在三个地方：**仓库工作区**、**PowerContext / seekdb 数据库**、
 **`minimax/artifacts/` 产物目录**。下面的命令按从轻到重的顺序列出。
 
-所有命令在仓库根目录 `PowerContext-minimax/` 执行。
+所有命令在仓库根目录执行（`minimax/` 的父目录）。
 
+> **解释器**：本文命令里的 `python` 指虚拟环境里的解释器。先激活它：
+> `. minimax/.venv/bin/activate`（Linux / macOS）、
+> `. minimax/.venv/Scripts/activate`（Windows Git Bash）、
+> `minimax\.venv\Scripts\activate`（Windows PowerShell / CMD）。
+> 激活后 `python` 与 `powercontext` 都在 `PATH` 上，命令无需再写完整路径。
+>
 > **存储模式**：脚本默认按**嵌入式 seekdb**（`--storage embedded`，免 Docker）工作。
 > 使用容器模式时改成 `--storage docker`（并按需加 `--env-file`）。
 > 数据目录默认 `minimax/.runtime/seekdb-data`，可用 `--seekdb-dir` 覆盖。
@@ -26,7 +32,7 @@
 
 ```bash
 cd minimax
-.venv/Scripts/python.exe -m sddctx apply --help   # 查看用法
+python -m sddctx apply --help   # 查看用法
 # 直接用快照覆盖：
 rm -rf sample/src sample/specs sample/tests
 cp -r artifacts/snapshots/before/src artifacts/snapshots/before/specs \
@@ -44,7 +50,7 @@ diff -r artifacts/snapshots/before/tests sample/tests
 期望结果：改动前的 6 个功能测试失败、20 个回归测试通过：
 
 ```bash
-cd sample && ../.venv/Scripts/python.exe -m pytest -q
+cd sample && python -m pytest -q
 # 6 failed, 20 passed
 ```
 
@@ -72,14 +78,14 @@ mkdir -p artifacts
 ```bash
 cd minimax
 # 查看现有作用域
-.venv/Scripts/python.exe scripts/reset.py --list-scopes
+python scripts/reset.py --list-scopes
 
 # 删除作用域并重新导入
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd
+python scripts/reset.py --scope minimax-sdd
 # deleted scope scp_xxxxxxxx, recreated it as scp_yyyyyyyy and re-imported 47 records
 
 # 清理验证脚本产生的临时作用域
-.venv/Scripts/python.exe scripts/reset.py --prune-demo-scopes
+python scripts/reset.py --prune-demo-scopes
 ```
 
 验证脚本每次运行会新建一个带时间戳的临时作用域（`minimax-sdd-restart-proof-<ts>`、
@@ -107,10 +113,10 @@ docker exec oceanbase-seekdb mysql -h127.0.0.1 -P2881 -uroot \
   -e "CREATE DATABASE powercontext_sdd CHARACTER SET utf8mb4;"
 
 # 重新启动 PowerContext Server
-minimax/.venv/Scripts/powercontext.exe server run --env-file minimax/.runtime/server.env
+powercontext server run --env-file minimax/.runtime/server.env
 
 # 重新导入
-cd minimax && .venv/Scripts/python.exe -m sddctx ingest --project sample
+cd minimax && python -m sddctx ingest --project sample
 ```
 
 彻底重建 seekdb 容器：
@@ -124,11 +130,11 @@ docker run -d --name oceanbase-seekdb -p 2881:2881 oceanbase/seekdb:1.4.0
 
 ```bash
 cd minimax
-.venv/Scripts/python.exe scripts/reset.py --database --storage embedded
+python scripts/reset.py --database --storage embedded
 # deleted the embedded seekdb data directory ...; restart PowerContext Server to rebuild the schema
 
 # 重新导入（脚本会自行拉起服务、建表、导入）
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage embedded
+python scripts/reset.py --scope minimax-sdd --storage embedded
 # deleted scope scp_xxxxxxxx, recreated it as scp_yyyyyyyy and re-imported 47 records
 ```
 
@@ -187,16 +193,16 @@ git clean -fd minimax/          # 确认后再执行（会删除 minimax/ 下所
 
 ```bash
 cd minimax
-.venv/Scripts/python.exe scripts/reset.py --help
-.venv/Scripts/python.exe scripts/reset.py --list-scopes
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd   # 重置作用域 + 重新导入
-.venv/Scripts/python.exe scripts/reset.py --prune-demo-scopes    # 清理临时作用域
-.venv/Scripts/python.exe scripts/reset.py --worktree             # 还原样例项目
-.venv/Scripts/python.exe scripts/reset.py --artifacts            # 清空产物
-.venv/Scripts/python.exe scripts/reset.py --database             # 重建数据库
+python scripts/reset.py --help
+python scripts/reset.py --list-scopes
+python scripts/reset.py --scope minimax-sdd   # 重置作用域 + 重新导入
+python scripts/reset.py --prune-demo-scopes    # 清理临时作用域
+python scripts/reset.py --worktree             # 还原样例项目
+python scripts/reset.py --artifacts            # 清空产物
+python scripts/reset.py --database             # 重建数据库
 
 # 容器模式（需要 Docker）
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage docker
+python scripts/reset.py --scope minimax-sdd --storage docker
 ```
 
 存储模式相关的参数：

@@ -79,7 +79,7 @@
 
 ```bash
 cd minimax
-.venv/Scripts/python.exe scripts/run_e2e.py
+python scripts/run_e2e.py
 ```
 
 3. 预期结果：
@@ -322,22 +322,27 @@ Windows 上上一个服务进程还没完全释放日志文件时，删除它会
 | PowerContext 收到 `SIGTERM` 后退出码为 1 | 容易被误读为失败 | 属其自身关闭行为；数据在数据库中，重启后可读回 |
 | 上游 `powercontext[seekdb]` extra 用环境标记把 `pylibseekdb` 限制在 Linux / macOS | Windows 上 `uv pip install "powercontext[seekdb]"` 不会自动装上绑定 | 绑定在 Windows 11 上可正常加载；本仓库的 `[seekdb]` extra 不带该标记，显式安装即可 |
 | 参赛分支的仓库根目录没有安装文件 | `uv pip install -e .` 在该分支必然失败 | 本仓库提供 `minimax/pyproject.toml`，安装命令改为 `-e "./minimax"`；两种仓库形态的命令见 `docs/01-setup.md` §2.2 |
+| 提交分支名必须是官方同名分支 | 平台按官方《比赛仓库地址》表 checkout `2026-competition-ecosystem`；若填 `competition/minimax`，平台在该分支上找不到所填 commit，会直接判定**执行失败** | 本作品的提交分支为 **`2026-competition-ecosystem`**（基线 `d647275c` 的后代）；`competition/minimax` 是同一提交的别名，两个分支指向同一 commit |
+| 运行说明原本只写了 Windows 路径 | 评审机若为 Linux，照抄 `.venv/Scripts/python.exe` 会全部失败 | 运行说明已改为跨平台形式（激活虚拟环境后统一用 `python`），并提供 `scripts/run_all.sh` 一键入口；形式已在全新虚拟环境中实测，见 `docs/03-verification.md` §7.1.1 |
 
 ---
 
 ## 7. 干净环境复现清单
 
-从零开始复现（不依赖本机任何既有文件或数据库状态）：
+从零开始复现（不依赖本机任何既有文件或数据库状态）。**下列命令在 Windows、Linux、macOS 上通用**，
+只有激活虚拟环境那一行按平台二选一：
 
 ```bash
-# 1. Python 环境与依赖
-cd PowerContext-minimax
+# 1. Python 环境与依赖（在仓库根目录执行）
 uv venv --python 3.12 minimax/.venv
+. minimax/.venv/bin/activate            # Linux / macOS
+# . minimax/.venv/Scripts/activate       # Windows Git Bash
+# minimax\.venv\Scripts\activate         # Windows PowerShell / CMD
 
-# 参赛分支（稀疏仓库）：
-uv pip install --python minimax/.venv/Scripts/python.exe -e "./minimax[server,seekdb,dev]"
-# 合并后的完整仓库：
-# uv pip install --python minimax/.venv/Scripts/python.exe -e . -e "./minimax[server,seekdb,dev]"
+# 参赛分支（根目录没有安装文件）：
+uv pip install -e "./minimax[server,seekdb,dev]"
+# 合并后的完整仓库：额外执行
+# uv pip install -e .
 
 # 2. 数据库（二选一）
 # 2a. 容器模式
@@ -353,7 +358,7 @@ mkdir -p minimax/.runtime
 # cp minimax/env/server.embedded-seekdb.env.example minimax/.runtime/server.env
 # 编辑 minimax/.runtime/server.env（填绝对路径）
 # 容器模式则用：cp minimax/env/server.env.example minimax/.runtime/server.env
-# 然后：minimax/.venv/Scripts/powercontext.exe server run --env-file minimax/.runtime/server.env
+# 然后：powercontext server run --env-file minimax/.runtime/server.env
 # 并给下面每条命令加上 --server-url http://127.0.0.1:8010
 
 # 4. 验证（每条命令自行启停服务，互不依赖）
@@ -361,20 +366,23 @@ cd minimax
 
 # 4a. 清空存储，从空状态开始
 #     注意：第一次启动要在空目录上建 61 张表，实测约 2~3 分钟，请勿中途 Ctrl+C
-.venv/Scripts/python.exe scripts/reset.py --database --storage embedded
-.venv/Scripts/python.exe scripts/reset.py --scope minimax-sdd --storage embedded
+python scripts/reset.py --database --storage embedded
+python scripts/reset.py --scope minimax-sdd --storage embedded
 
 # 4b. 端到端
-.venv/Scripts/python.exe scripts/run_e2e.py --storage embedded \
+python scripts/run_e2e.py --storage embedded \
     --model-answer model/SPEC-BILL-001-pricing.session-model.txt \
     --model-id "MiniMax-M3.1-Flash"
 
 # 4c. 重启持久化
-.venv/Scripts/python.exe scripts/prove_restart_persistence.py --storage embedded
+python scripts/prove_restart_persistence.py --storage embedded
 
 # 4d. 规格修订
-.venv/Scripts/python.exe scripts/prove_spec_revision.py --storage embedded
+python scripts/prove_spec_revision.py --storage embedded
 ```
+
+> 也可以用一键入口替代第 4 步的 4a~4d：
+> `cd minimax && bash scripts/run_all.sh`（脚本自行定位虚拟环境解释器）。
 
 第 4 步的预期结果：
 
